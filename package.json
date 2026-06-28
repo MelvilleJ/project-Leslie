@@ -1,0 +1,50 @@
+{
+  "name": "project-leslie",
+  "version": "0.1.0",
+  "description": "LESLIE — an AI agent desktop companion",
+  "main": "src/main/main.js",
+  "scripts": {
+    "build:voice": "node scripts/build-voice.js",
+    "prestart": "npm run build:voice",
+    "predev": "npm run build:voice",
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "pack": "npm run build:voice && electron-builder --dir",
+    "dist": "npm run build:voice && electron-builder --win nsis"
+  },
+  "keywords": [
+    "electron",
+    "desktop-companion",
+    "ai-agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^42.5.0",
+    "electron-builder": "^26.0.0",
+    "esbuild": "^0.28.1"
+  },
+  "build": {
+    "appId": "com.projectleslie.app",
+    "productName": "LESLIE",
+    "files": [
+      "src/**",
+      "assets/**",
+      "scripts/**",
+      "package.json",
+      "node_modules/**"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    }
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "docx": "^9.7.1",
+    "exceljs": "^4.4.0",
+    "pdfkit": "^0.19.1"
+  }
+}

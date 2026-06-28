@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>LESLIE — Settings</title>
+  <link rel="stylesheet" href="settings.css" />
+</head>
+<body>
+  <header id="bar">
+    <span id="title">LESLIE — Settings</span>
+    <span id="mode-strip">
+      <button class="mode-btn" data-mode="chat" type="button">💬 Chat</button>
+      <button class="mode-btn" data-mode="plan" type="button">📋 Plan</button>
+      <button class="mode-btn" data-mode="agent" type="button">🤖 Agent</button>
+    </span>
+  </header>
+
+  <div id="shell">
+    <!-- Left navigation -->
+    <nav id="nav">
+      <button class="nav-item active" data-panel="conversations" type="button">🗂 Conversations</button>
+      <button class="nav-item" data-panel="system" type="button">📊 System</button>
+      <button class="nav-item" data-panel="connection" type="button">🔌 Model &amp; Connection</button>
+      <button class="nav-item" data-panel="generation" type="button">🎚 Generation</button>
+      <button class="nav-item" data-panel="behaviour" type="button">🧠 Behaviour</button>
+      <button class="nav-item" data-panel="voice" type="button">🎤 Voice</button>
+      <button class="nav-item" data-panel="memory" type="button">💾 Memory</button>
+      <button class="nav-item" data-panel="about" type="button">ℹ️ About</button>
+    </nav>
+
+    <!-- Panels -->
+    <main id="main">
+      <!-- Conversations -->
+      <section class="panel active" data-panel="conversations">
+        <div class="panel-head">
+          <h2>Past conversations</h2>
+          <div class="panel-actions">
+            <button id="conv-new" class="btn" type="button">＋ New</button>
+            <button id="conv-clear" class="btn danger" type="button">Delete all</button>
+          </div>
+        </div>
+        <div class="split">
+          <div id="conv-list" class="list"></div>
+          <div id="conv-detail" class="reader">
+            <p class="muted">Select a conversation to read it.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- System monitor -->
+      <section class="panel" data-panel="system">
+        <div class="panel-head"><h2>System monitor</h2>
+          <div class="panel-actions"><span id="sys-pause-label" class="muted small">live</span>
+            <button id="sys-pause" class="btn" type="button">Pause</button></div>
+        </div>
+        <div id="sys-grid" class="cards"></div>
+      </section>
+
+      <!-- Connection / model -->
+      <section class="panel" data-panel="connection">
+        <div class="panel-head"><h2>Model &amp; connection</h2>
+          <div class="panel-actions">
+            <button id="model-refresh" class="btn" type="button">List models</button>
+            <button id="conn-test" class="btn" type="button">Test connection</button>
+          </div>
+        </div>
+        <div id="conn-status" class="status-line muted small"></div>
+        <div id="form-connection" class="form"></div>
+      </section>
+
+      <!-- Generation -->
+      <section class="panel" data-panel="generation">
+        <div class="panel-head"><h2>Generation</h2></div>
+        <div id="form-generation" class="form"></div>
+      </section>
+
+      <!-- Behaviour -->
+      <section class="panel" data-panel="behaviour">
+        <div class="panel-head"><h2>Behaviour</h2></div>
+        <div id="form-behaviour" class="form"></div>
+      </section>
+
+      <!-- Voice -->
+      <section class="panel" data-panel="voice">
+        <div class="panel-head"><h2>Voice</h2></div>
+        <div id="form-voice" class="form"></div>
+      </section>
+
+      <!-- Memory -->
+      <section class="panel" data-panel="memory">
+        <div class="panel-head"><h2>What LESLIE remembers</h2>
+          <div class="panel-actions"><button id="mem-clear" class="btn danger" type="button">Forget all</button></div>
+        </div>
+        <div id="mem-list" class="list wide"></div>
+      </section>
+
+      <!-- About -->
+      <section class="panel" data-panel="about">
+        <div class="panel-head"><h2>About</h2></div>
+        <div id="about" class="form"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Tiny "saved" toast -->
+  <div id="toast" class="hidden"></div>
+
+  <datalist id="model-options"></datalist>
+
+  <script src="settings.js"></script>
+</body>
+</html>

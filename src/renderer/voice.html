@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Hidden worker window. Relaxed CSP (only here) so transformers.js / ORT can
+       compile wasm, spawn workers, fetch the model on first run, and (server STT
+       backend) reach a local/remote whisper server over http/https. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self' 'wasm-unsafe-eval' blob:;
+                 worker-src 'self' blob:;
+                 connect-src 'self' http: https: data: blob:;
+                 style-src 'self' 'unsafe-inline';
+                 img-src 'self' data:;" />
+  <title>LESLIE — voice</title>
+</head>
+<body>
+  <!-- No UI: this window stays hidden and just runs the audio/ML pipeline. -->
+  <script type="module" src="voice.bundle.js"></script>
+</body>
+</html>

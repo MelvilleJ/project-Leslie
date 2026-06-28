@@ -1,0 +1,264 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  color: #e8e8ee;
+  font-family: system-ui, sans-serif;
+}
+
+/* Ambient backdrop: a deep gradient with a couple of soft colour "glow" pools.
+   The frosted panels above blur this, which is what sells the glass look. */
+body {
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(900px 600px at 12% -10%, rgba(123, 75, 196, 0.30), transparent 60%),
+    radial-gradient(800px 600px at 110% 10%, rgba(58, 111, 216, 0.28), transparent 55%),
+    radial-gradient(700px 700px at 50% 120%, rgba(83, 52, 131, 0.22), transparent 60%),
+    linear-gradient(160deg, #1a1a2e 0%, #15152a 45%, #0e0e1f 100%);
+  background-attachment: fixed;
+}
+
+/* Header — a frosted glass bar floating over the backdrop. */
+#bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  /* Reserve room on the right for the native min/max/close caption buttons,
+     which the OS draws over the top-right corner (titleBarOverlay). */
+  padding: 0 150px 0 16px;
+  height: 44px;
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex: 0 0 auto;
+  z-index: 2;
+  /* The whole bar is the window drag handle. */
+  -webkit-app-region: drag;
+}
+
+/* Interactive controls inside the bar must opt out of dragging. */
+#bar button {
+  -webkit-app-region: no-drag;
+}
+
+#title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.85rem;
+  color: #c6c6d6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+
+/* Glowing status dot before the title. */
+#title::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9b7bff;
+  box-shadow: 0 0 8px 1px rgba(155, 123, 255, 0.8), 0 0 2px rgba(155, 123, 255, 1);
+  animation: pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.85; box-shadow: 0 0 8px 1px rgba(155, 123, 255, 0.7); }
+  50% { opacity: 1; box-shadow: 0 0 12px 2px rgba(155, 123, 255, 0.95); }
+}
+
+/* Close button — glass pill that lights up on hover. */
+#back {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  color: #e8e8ee;
+  background: rgba(123, 75, 196, 0.22);
+  border: 1px solid rgba(177, 139, 255, 0.35);
+  border-radius: 999px;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+#back:hover {
+  background: rgba(123, 75, 196, 0.42);
+  border-color: rgba(177, 139, 255, 0.7);
+  box-shadow: 0 0 14px rgba(123, 75, 196, 0.45);
+}
+
+/* Text mode — the detailed answer sits in a translucent frosted card. */
+#content {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin: 16px;
+  padding: 22px 26px;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  word-break: break-word;
+  background: rgba(30, 31, 58, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+  backdrop-filter: blur(22px) saturate(135%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 12px 40px rgba(0, 0, 0, 0.35);
+  animation: rise 0.35s ease both;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#content h1,
+#content h2,
+#content h3,
+#content h4,
+#content h5,
+#content h6 {
+  margin: 1.2em 0 0.5em;
+  line-height: 1.3;
+  color: #f3f1fb;
+}
+#content h1 { font-size: 1.5rem; }
+#content h2 {
+  font-size: 1.3rem;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+#content h3 { font-size: 1.12rem; }
+#content h4,
+#content h5,
+#content h6 { font-size: 1rem; }
+
+#content p { margin: 0.6em 0; }
+
+#content ul,
+#content ol {
+  margin: 0.6em 0;
+  padding-left: 1.6em;
+}
+#content li { margin: 0.25em 0; }
+#content li::marker { color: #b18bff; }
+
+#content a {
+  color: #9cc0ff;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(156, 192, 255, 0.3);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+#content a:hover {
+  color: #c4d8ff;
+  border-bottom-color: rgba(156, 192, 255, 0.8);
+}
+
+#content code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.88em;
+  background: rgba(123, 75, 196, 0.20);
+  border: 1px solid rgba(177, 139, 255, 0.20);
+  padding: 0.08em 0.4em;
+  border-radius: 6px;
+}
+
+/* Code blocks — darker glass slab with an accent edge and soft glow. */
+#content pre {
+  margin: 0.9em 0;
+  padding: 14px 16px;
+  background: rgba(10, 11, 24, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid rgba(155, 123, 255, 0.8);
+  border-radius: 10px;
+  overflow-x: auto;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+#content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.85rem;
+  white-space: pre;
+}
+
+#content blockquote {
+  margin: 0.9em 0;
+  padding: 0.4em 0 0.4em 1em;
+  border-left: 3px solid rgba(177, 139, 255, 0.6);
+  background: rgba(123, 75, 196, 0.10);
+  border-radius: 0 8px 8px 0;
+  color: #c8c8d8;
+}
+
+#content hr {
+  margin: 1.3em 0;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+#content table {
+  margin: 0.9em 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+}
+#content th,
+#content td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  text-align: left;
+}
+#content th {
+  background: rgba(123, 75, 196, 0.18);
+  color: #f3f1fb;
+  font-weight: 600;
+}
+#content tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.03);
+}
+#content tbody tr:last-child td { border-bottom: none; }
+
+#content > *:first-child { margin-top: 0; }
+
+/* Thin, glassy scrollbar for the content card. */
+#content::-webkit-scrollbar { width: 10px; }
+#content::-webkit-scrollbar-track { background: transparent; }
+#content::-webkit-scrollbar-thumb {
+  background: rgba(177, 139, 255, 0.30);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+#content::-webkit-scrollbar-thumb:hover {
+  background: rgba(177, 139, 255, 0.55);
+  background-clip: padding-box;
+}
+
+/* Web mode */
+#web {
+  flex: 1 1 auto;
+  width: 100%;
+  border: none;
+}
+
+.hidden {
+  display: none !important;
+}

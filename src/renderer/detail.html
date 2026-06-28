@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Page itself loads no remote resources; the <webview> guest is separate. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>LESLIE — Details</title>
+  <link rel="stylesheet" href="detail.css" />
+</head>
+<body>
+  <header id="bar">
+    <span id="title">Detailed response</span>
+    <button id="back" class="hidden" title="Back to the answer">✕ Close page</button>
+  </header>
+
+  <!-- Text mode: the model's detailed answer. -->
+  <main id="content"></main>
+
+  <!-- Web mode: an opened URL / search results. -->
+  <webview id="web" class="hidden" allowpopups></webview>
+
+  <script src="markdown.js"></script>
+  <script src="detail.js"></script>
+</body>
+</html>

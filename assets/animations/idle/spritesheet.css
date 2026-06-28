@@ -1,0 +1,31 @@
+.sprite {
+  display: inline-block;
+  background: url('spritesheet.png') no-repeat;
+  width: 228px;
+  height: 537px;
+}
+.sprite-0 { background-position: -0px -0px; }
+.sprite-1 { background-position: -228px -0px; }
+.sprite-2 { background-position: -456px -0px; }
+.sprite-3 { background-position: -684px -0px; }
+.sprite-4 { background-position: -0px -537px; }
+.sprite-5 { background-position: -228px -537px; }
+.sprite-6 { background-position: -456px -537px; }
+.sprite-7 { background-position: -684px -537px; }
+.sprite-8 { background-position: -0px -1074px; }
+.sprite-9 { background-position: -228px -1074px; }
+.sprite-10 { background-position: -456px -1074px; }
+.sprite-11 { background-position: -684px -1074px; }
+.sprite-12 { background-position: -0px -1611px; }
+.sprite-13 { background-position: -228px -1611px; }
+.sprite-14 { background-position: -456px -1611px; }
+.sprite-15 { background-position: -684px -1611px; }
+.sprite-16 { background-position: -0px -2148px; }
+.sprite-17 { background-position: -228px -2148px; }
+.sprite-18 { background-position: -456px -2148px; }
+.sprite-19 { background-position: -684px -2148px; }
+.sprite-20 { background-position: -0px -2685px; }
+.sprite-21 { background-position: -228px -2685px; }
+.sprite-22 { background-position: -456px -2685px; }
+.sprite-23 { background-position: -684px -2685px; }
+.sprite-24 { background-position: -0px -3222px; }
