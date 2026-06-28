@@ -1,44 +1,31 @@
 'use strict';
 
-// Voice pipeline (runs in the hidden voice window, bundled by esbuild).
-//   mic -> energy VAD (segments speech) -> Whisper -> wake/command
-// Whisper runs either locally (transformers.js) or on an external whisper server
-// (OpenAI-compatible /audio/transcriptions), selected by sttBackend.
-// Emits results to the main process via window.voiceBridge; the rest of the app
-// never touches audio or the ML libs.
-
 import { pipeline, env } from '@huggingface/transformers';
 import wake from './wakeword.js';
 
-// Load onnxruntime wasm assets from the local copy placed by build:voice.
-env.allowLocalModels = false; // model weights still come from the HF hub (cached)
+env.allowLocalModels = false;
 env.backends.onnx.wasm.wasmPaths = './ort/';
-// Single-threaded WASM avoids needing SharedArrayBuffer / cross-origin isolation
-// (not available on file:// without extra headers). WebGPU is used when present.
 env.backends.onnx.wasm.numThreads = 1;
 
 const bridge = window.voiceBridge;
 
-// --- Config (provided by main on init) -------------------------------------
-let BACKEND = 'local'; // 'local' (transformers.js) | 'server' (whisper server)
+let BACKEND = 'local';
 let MODEL = 'Xenova/whisper-tiny.en';
-let SERVER_URL = 'http://localhost:8080/v1'; // base URL incl. /v1
+let SERVER_URL = 'http://localhost:8080/v1';
 let SERVER_MODEL = 'whisper-1';
 let SERVER_API_KEY = '';
 let WAKE = 'hey leslie';
 let WAKE_TIMEOUT_MS = 8000;
 
-// --- State -----------------------------------------------------------------
-let active = true; // listening enabled
-let awakeUntil = 0; // timestamp; while now < this we treat speech as a command
+let active = true;
+let awakeUntil = 0;
 let transcriber = null;
 let audioCtx = null;
 let micStream = null;
-let sampleRate = 16000; // actual mic/AudioContext rate, set in startMic
+let sampleRate = 16000;
 
 const status = (state, message) => bridge.status({ state, message });
 
-// Whisper sometimes "hears" boilerplate on silence; ignore obvious junk.
 const JUNK = new Set(['', 'you', 'thank you.', 'thanks for watching!', '[blank_audio]', '(silence)']);
 function isJunk(text) {
   const t = text.trim().toLowerCase();
@@ -51,7 +38,6 @@ async function getTranscriber() {
   try {
     transcriber = await pipeline('automatic-speech-recognition', MODEL, { device: 'webgpu' });
   } catch (err) {
-    // WebGPU unavailable — fall back to WASM.
     transcriber = await pipeline('automatic-speech-recognition', MODEL, { device: 'wasm' });
   }
   status('idle');
@@ -64,7 +50,6 @@ async function transcribeLocal(samples) {
   return (out && out.text ? out.text : '').trim();
 }
 
-// Encode mono Float32 PCM as a 16-bit WAV blob (what whisper servers expect).
 function encodeWav(samples, rate) {
   const buffer = new ArrayBuffer(44 + samples.length * 2);
   const view = new DataView(buffer);
@@ -75,13 +60,13 @@ function encodeWav(samples, rate) {
   view.setUint32(4, 36 + samples.length * 2, true);
   writeStr(8, 'WAVE');
   writeStr(12, 'fmt ');
-  view.setUint32(16, 16, true); // PCM fmt chunk size
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, 1, true); // mono
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
   view.setUint32(24, rate, true);
-  view.setUint32(28, rate * 2, true); // byte rate
-  view.setUint16(32, 2, true); // block align
-  view.setUint16(34, 16, true); // bits per sample
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
   writeStr(36, 'data');
   view.setUint32(40, samples.length * 2, true);
   let off = 44;
@@ -124,7 +109,6 @@ async function transcribe(samples) {
   }
 }
 
-// Decide what an utterance means and notify main.
 async function handleUtterance(samples) {
   if (!active) return;
   let text;
@@ -138,7 +122,6 @@ async function handleUtterance(samples) {
 
   const now = Date.now();
   if (now < awakeUntil) {
-    // Already woken — this utterance is the command.
     awakeUntil = 0;
     bridge.final({ text });
     return;
@@ -148,23 +131,20 @@ async function handleUtterance(samples) {
   if (!matched) return;
 
   if (command) {
-    // "Hey Leslie, <command>" in one breath.
     bridge.wake({ command });
     bridge.final({ text: command });
   } else {
-    // Just the wake word — show up and listen for the next utterance.
     awakeUntil = now + WAKE_TIMEOUT_MS;
     bridge.wake({ command: '' });
     status('listening');
   }
 }
 
-// --- Mic capture + energy VAD ----------------------------------------------
-const FRAME = 4096; // ScriptProcessor buffer size
-const SPEECH_RMS = 0.012; // amplitude threshold to count a frame as speech
-const SILENCE_MS = 600; // trailing silence that ends an utterance
-const MIN_MS = 300; // ignore blips shorter than this
-const MAX_MS = 15000; // hard cap per utterance
+const FRAME = 4096;
+const SPEECH_RMS = 0.012;
+const SILENCE_MS = 600;
+const MIN_MS = 300;
+const MAX_MS = 15000;
 
 async function startMic() {
   micStream = await navigator.mediaDevices.getUserMedia({
@@ -177,7 +157,7 @@ async function startMic() {
   const node = audioCtx.createScriptProcessor(FRAME, 1, 1);
 
   const rate = audioCtx.sampleRate;
-  sampleRate = rate; // remember for WAV encoding (server backend)
+  sampleRate = rate;
   const frameMs = (FRAME / rate) * 1000;
   let speaking = false;
   let silenceMs = 0;
@@ -220,7 +200,7 @@ async function startMic() {
       durMs += frameMs;
       if (durMs >= MAX_MS) flush();
     } else if (speaking) {
-      chunks.push(new Float32Array(input)); // keep a little trailing audio
+      chunks.push(new Float32Array(input));
       silenceMs += frameMs;
       durMs += frameMs;
       if (silenceMs >= SILENCE_MS) flush();
@@ -228,11 +208,10 @@ async function startMic() {
   };
 
   source.connect(node);
-  node.connect(audioCtx.destination); // required for ScriptProcessor to fire
+  node.connect(audioCtx.destination);
   status('idle');
 }
 
-// --- Control from main ------------------------------------------------------
 bridge.onInit((cfg) => {
   if (cfg.sttBackend) BACKEND = cfg.sttBackend;
   if (cfg.sttModel) MODEL = cfg.sttModel;
@@ -251,7 +230,6 @@ bridge.onControl((msg) => {
     if (audioCtx) (active ? audioCtx.resume() : audioCtx.suspend());
     status(active ? 'idle' : 'off');
   } else if (msg.action === 'listen-once') {
-    // Manual push-to-talk: treat the next utterance as a command.
     active = true;
     if (audioCtx) audioCtx.resume();
     awakeUntil = Date.now() + WAKE_TIMEOUT_MS;

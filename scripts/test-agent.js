@@ -1,10 +1,5 @@
 'use strict';
 
-// Standalone tests for the pure agent layers (no Electron, no network).
-//   node scripts/test-agent.js
-// Covers the text-fallback tool parser, native-vs-text resolution (skip_fenced),
-// keyword tool-RAG selection, and plan-mode policy gating.
-
 const assert = require('node:assert');
 const { parseToolCalls } = require('../src/main/agent/toolParsing');
 const { resolveToolCalls } = require('../src/main/agent/toolResolve');
@@ -124,7 +119,6 @@ test('no keyword match → all tools (never strand the model)', () => {
 
 console.log('agent-mode effectful tools always offered (regression: #commands)');
 
-// Mirrors loop.js: RAG subset UNION active effectful tools, then policy filter.
 const AGENT_META = ['web_search', 'deep_search', 'open_url', 'open_search', 'open_app', 'run_command', 'install_software'].map(
   (n) => ({ name: n, description: n, readOnly: ['web_search', 'deep_search', 'open_url', 'open_search'].includes(n) })
 );
@@ -135,7 +129,6 @@ function selectAgentMode(query) {
 }
 
 test('run_command offered even when the query matches other tools', () => {
-  // "open notepad…" matches open_url/open_app keywords; run_command must survive.
   const sel = selectAgentMode('open notepad and type hello');
   assert.ok(sel.includes('run_command'), sel.join(','));
   assert.ok(sel.includes('install_software'), sel.join(','));

@@ -1,13 +1,5 @@
 'use strict';
 
-// Public agent API — preserves the exact surface main.js wires to IPC:
-// sendMessage(text, onEvent), reset(), resolveConfirm(id, approved).
-//
-// Owns the conversation history and the user-confirmation plumbing; delegates
-// the actual agentic round loop to ./loop. The streaming event surface
-// (thinking / summary / details / open-url / confirm) is unchanged, so the
-// renderer and preload need no changes.
-
 const config = require('../config');
 const memory = require('../memory');
 const conversations = require('../conversations');
@@ -18,30 +10,20 @@ const { extractMemories } = require('./reflect');
 /** @type {{ role: string, content: string }[]} */
 let history = [];
 
-// Counts user turns so background extraction runs only every config.learnEvery
-// turns (cost control on local models). Reset with the conversation.
 let turnCount = 0;
 
-// Outstanding confirmation requests, keyed by id. A tool asks via ctx.confirm,
-// which parks a resolver here and emits a 'confirm' event; the UI's answer comes
-// back through resolveConfirm() (wired from the main process IPC handler).
 const pendingConfirms = new Map();
 let confirmSeq = 0;
 
 /** Settle a pending confirmation with the user's choice (called from main). */
 function resolveConfirm(id, approved) {
   const done = pendingConfirms.get(id);
-  if (done) done(Boolean(approved)); // `done` clears the map entry itself
+  if (done) done(Boolean(approved));
 }
 
-// Tools can drive the UI through this context (open a URL in the window, or ask
-// the user to approve a risky action before it runs).
 function makeCtx(onEvent) {
   return {
     openUrl: (url) => onEvent({ type: 'open-url', url }),
-    // Resolves true/false once the user clicks Approve/Deny in the bubble. A
-    // generous timeout denies by default so a dropped prompt (e.g. the window
-    // was closed) can never hang the tool loop indefinitely.
     confirm: (message) =>
       new Promise((resolve) => {
         const id = `c${++confirmSeq}`;
@@ -64,9 +46,6 @@ function makeCtx(onEvent) {
  * @param {(event: { type: string, text?: string, url?: string }) => void} onEvent
  * @returns {Promise<string>} the final summary text
  */
-// What the model can actually DO this turn, based on the active mode. Without
-// this, models default to "I'm an AI, I can't run commands" and just print the
-// command (often inventing a "sandbox") instead of calling the run_command tool.
 const AGENT_CAPABILITIES = [
   'AGENT MODE IS ON. You are running on the user\'s Windows PC and have tools that REALLY execute here:',
   'run_command (PowerShell), install_software (winget), open_app, open_url, web_search, deep_search,',
@@ -95,8 +74,6 @@ function modeCapabilities() {
 
 async function sendMessage(text, onEvent) {
   const parts = [config.systemPrompt];
-  // Learning mode: surface remembered preferences right after the persona so
-  // every reply can use them.
   if (config.learningMode) {
     const remembered = memory.format();
     if (remembered) parts.push(remembered);
@@ -114,23 +91,17 @@ async function sendMessage(text, onEvent) {
 
   const { summary, details } = await runConversation(messages, onEvent, makeCtx(onEvent), text);
 
-  // Store the substance (summary + details) so follow-ups have context.
   const stored = [summary.trim(), details.trim()].filter(Boolean).join('\n\n') || summary;
   history.push({ role: 'user', content: text }, { role: 'assistant', content: stored });
   if (history.length > config.historyLimit) {
     history = history.slice(history.length - config.historyLimit);
   }
 
-  // Persist the exchange to the durable transcript (the "past conversations"
-  // the settings window lists). Best-effort; never blocks or breaks the reply.
   try {
     conversations.appendExchange(text, stored);
   } catch {
-    // Non-fatal: the in-memory reply is unaffected.
   }
 
-  // Background preference extraction: fire-and-forget on the cadence so it never
-  // blocks the reply or surfaces errors. learnEvery <= 0 disables it.
   turnCount++;
   if (config.learningMode && config.learnEvery > 0 && turnCount % config.learnEvery === 0) {
     extractMemories(history.slice()).catch(() => {});
@@ -141,7 +112,6 @@ async function sendMessage(text, onEvent) {
 
 /** Forget the conversation so far (and start a fresh transcript). */
 function reset() {
-  // Last chance to learn from this session before its history is dropped.
   if (config.learningMode && config.learnEvery > 0 && history.length) {
     extractMemories(history.slice()).catch(() => {});
   }
@@ -150,7 +120,6 @@ function reset() {
   try {
     conversations.startNew();
   } catch {
-    // Non-fatal.
   }
 }
 

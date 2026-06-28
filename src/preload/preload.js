@@ -2,8 +2,6 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-// Secure bridge between the renderer (UI) and the main process.
-// Only these functions are exposed to window.leslie — no raw ipcRenderer.
 contextBridge.exposeInMainWorld('leslie', {
   /**
    * Send a message to the agent and await its full reply.
@@ -88,7 +86,6 @@ contextBridge.exposeInMainWorld('leslie', {
   /** Hide the companion window to the tray. */
   hide: () => ipcRenderer.send('window:hide'),
 
-  // --- Voice ----------------------------------------------------------------
   /** Wake word heard: { command } (command may be empty). */
   onVoiceWake: (cb) => {
     const l = (_e, data) => cb(data || {});

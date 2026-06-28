@@ -1,8 +1,5 @@
 'use strict';
 
-// open_url — opens a web page in LESLIE's window so the user can see it.
-// The actual navigation happens in the main process via ctx.openUrl.
-
 function normalizeUrl(u) {
   let url = String(u).trim();
   if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
@@ -11,7 +8,7 @@ function normalizeUrl(u) {
 
 module.exports = {
   name: 'open_url',
-  readOnly: true, // just displays a page in LESLIE's window — allowed in plan mode
+  readOnly: true,
   description:
     "Open a web page in LESLIE's window so the user can see it. Use when the user " +
     'asks to open, show, visit, or go to a specific URL or website.',

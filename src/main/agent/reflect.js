@@ -1,16 +1,8 @@
 'use strict';
 
-// Background preference extraction — the passive half of learning mode.
-// After a turn, a single non-streaming model call distills any NEW durable user
-// preferences from the recent exchange (given what's already known) and merges
-// them into the memory store. Best-effort: every failure is swallowed so it can
-// never affect the user-facing reply. Throttled by config.learnEvery (see
-// agent/index.js, which decides when to call this).
-
 const config = require('../config');
 const memory = require('../memory');
 
-// How many recent history messages to feed the extractor (keeps the call cheap).
 const RECENT_MESSAGES = 6;
 
 const EXTRACT_SYSTEM = [
@@ -23,7 +15,6 @@ const EXTRACT_SYSTEM = [
   'If there is nothing new worth saving, output []. No prose, just the JSON array.'
 ].join(' ');
 
-// Pull the first JSON array out of the model's text, defensively.
 function parseArray(text) {
   if (!text) return [];
   const start = text.indexOf('[');
@@ -37,7 +28,6 @@ function parseArray(text) {
   }
 }
 
-// One non-streaming chat completion (same endpoint/auth as streamTurn).
 async function chatOnce(messages) {
   const headers = { 'Content-Type': 'application/json' };
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;

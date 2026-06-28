@@ -1,21 +1,9 @@
 'use strict';
 
-// Editable configuration surface for the settings window.
-//
-// config.js holds the live, runtime-mutable config object (read fresh each turn
-// by the agent). This module describes WHICH of those fields the UI may edit,
-// coerces/validates incoming values, and persists overrides via settings.js so
-// they survive restarts — re-applied on startup on top of the .env defaults,
-// the same layering already used for agentMode/planMode.
-//
-// SCHEMA is plain data (no functions) so it can be sent over IPC and the
-// renderer can build the form generically.
-
 const config = require('./config');
 const settings = require('./settings');
 
 const SCHEMA = [
-  // --- Connection ---
   { key: 'baseURL', type: 'string', group: 'Connection', label: 'Server base URL',
     help: 'OpenAI-compatible endpoint, including the /v1 suffix.' },
   { key: 'model', type: 'string', group: 'Connection', label: 'Model',
@@ -25,7 +13,6 @@ const SCHEMA = [
   { key: 'searxngUrl', type: 'string', group: 'Connection', label: 'SearXNG URL',
     help: 'Backs the web_search tool. JSON output must be enabled in SearXNG.' },
 
-  // --- Generation ---
   { key: 'systemPrompt', type: 'text', group: 'Generation', label: 'System prompt',
     help: "LESLIE's persona. Kept short — replies show in a small bubble." },
   { key: 'temperature', type: 'number', group: 'Generation', label: 'Temperature',
@@ -35,7 +22,6 @@ const SCHEMA = [
   { key: 'historyLimit', type: 'number', group: 'Generation', label: 'History messages kept',
     min: 0, max: 200, step: 2, help: 'How many past messages stay in context.' },
 
-  // --- Behaviour ---
   { key: 'toolsEnabled', type: 'boolean', group: 'Behaviour', label: 'Enable tools',
     help: 'Web search, deep search, open URL, etc. Needs a tool-capable model.' },
   { key: 'maxToolCalls', type: 'number', group: 'Behaviour', label: 'Max tool calls per message',
@@ -48,7 +34,6 @@ const SCHEMA = [
   { key: 'searchResults', type: 'number', group: 'Behaviour', label: 'Search results fed back',
     min: 1, max: 20, step: 1 },
 
-  // --- Voice ---
   { key: 'voiceAutoSend', type: 'boolean', group: 'Voice', label: 'Auto-send dictated text' },
   { key: 'wakeWord', type: 'string', group: 'Voice', label: 'Wake word',
     help: 'Matching is fuzzy and keys on the last word.' }
@@ -56,8 +41,6 @@ const SCHEMA = [
 
 const BY_KEY = new Map(SCHEMA.map((f) => [f.key, f]));
 
-// Keys whose change should re-initialise the voice window (it reads them once
-// on init). Surfaced so main.js can react without hard-coding the list.
 const VOICE_KEYS = SCHEMA.filter((f) => f.group === 'Voice').map((f) => f.key);
 
 function coerce(field, value) {

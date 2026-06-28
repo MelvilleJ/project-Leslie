@@ -1,21 +1,9 @@
 'use strict';
 
-// Reliability guards for weak local models. Ported in shape from the
-// loop-breaker / intent-nudge / empty-response handling in Odysseus's
-// src/agent_loop.py (stream_agent_loop).
-//
-//  - Loop-breaker: the model re-issues the same tool call(s) with no new answer
-//    text, round after round. After a streak we force ONE tool-free round so it
-//    must answer from what it has (or say it's blocked).
-//  - Runaway backstop: one identical call repeated an absurd number of times.
-//  - Intent-without-action: the model writes "let me check the logs…" but emits
 //    no tool call. Inject one sharp nudge to actually call it; capped.
-//  - Empty-response fallback: turn ends with no text and no tools — emit a short
-//    graceful line instead of a blank bubble.
 
 const config = require('../config');
 
-// "I'll/let me <action>…" with an action verb that maps to doing something.
 const INTENT_RE =
   /(?:^|\n)\s*(?:let me|i'?ll|i will|i need to|i should|i'?m going to|let's)\s+(?:check|look|search|find|run|open|read|fetch|investigate|see|try|use|install|launch|execute)\b[^.\n]{0,140}/i;
 
@@ -27,8 +15,8 @@ function sigOf(calls) {
 }
 
 function createGuards() {
-  const recentSigs = []; // last few round signatures (maxlen 6)
-  const callFreq = new Map(); // exact call signature -> count
+  const recentSigs = [];
+  const callFreq = new Map();
   let stuckRounds = 0;
   let intentNudges = 0;
 

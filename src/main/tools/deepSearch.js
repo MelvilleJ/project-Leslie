@@ -1,16 +1,7 @@
 'use strict';
 
-// deep_search — like web_search, but actually *reads* the top pages. It queries
-// SearXNG for ranked results, then fetches each result page and extracts its
-// readable text, so the model can synthesize an answer from page content rather
-// than from snippets alone. Use it for research-style questions where a single
-// search snippet is not enough (comparisons, how-tos, multi-source facts).
-
 const config = require('../config');
 
-// Strip an HTML document down to readable plain text. Deliberately simple — no
-// DOM, no dependencies: drop script/style/noscript, turn tags into spaces,
-// decode the few entities that matter, then collapse whitespace.
 function htmlToText(html) {
   return html
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
@@ -30,7 +21,6 @@ function htmlToText(html) {
     .trim();
 }
 
-// Fetch one page and return its extracted text (truncated), or an error note.
 async function readPage(url, charLimit) {
   try {
     const ctrl = new AbortController();
@@ -84,7 +74,6 @@ async function run({ query, max_pages }) {
   const wanted = Math.max(1, Math.min(Number(max_pages) || config.deepSearchPages, config.deepSearchPages));
   const top = (data.results || []).filter((r) => r && r.url).slice(0, wanted);
 
-  // Read the pages concurrently — they're independent network calls.
   const pages = await Promise.all(
     top.map(async (r, i) => {
       const page = await readPage(r.url, config.deepSearchChars);
@@ -106,7 +95,7 @@ async function run({ query, max_pages }) {
 
 module.exports = {
   name: 'deep_search',
-  readOnly: true, // information-gathering only — allowed in plan mode
+  readOnly: true,
   description:
     'Research a topic by searching the web and reading the full text of the top result ' +
     'pages (not just snippets). Use for questions that need synthesis across sources — ' +

@@ -1,13 +1,7 @@
 'use strict';
 
-// install_software — agent-mode convenience wrapper around winget. Builds a
-// well-formed `winget install` line (which is allowlisted, so it runs without a
-// prompt by default) and reports the result. Only registered when
-// LESLIE_AGENT_MODE=1 (see tools/index.js).
-
 const { gate, execShell } = require('./lib/agentShell');
 
-// Quote a value for a PowerShell argument (wrap in single quotes, escape any).
 function psQuote(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }

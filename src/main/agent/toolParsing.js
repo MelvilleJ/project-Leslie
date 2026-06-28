@@ -1,28 +1,10 @@
 'use strict';
 
-// Text-fallback tool-call parser. Some local models don't emit native OpenAI
-// `tool_calls`; they write the call as text instead. This recovers those calls
-// from the raw assistant content. Ported (shapes only) from Odysseus's
-// src/tool_parsing.py. Pure functions — no Electron, unit-testable.
-//
-// Three notations are recognised:
-//   1. XML:     <tool_call><invoke name="web_search"><parameter name="query">cats</parameter></invoke></tool_call>
-//               (the <tool_call>/<function_call> wrapper is optional; bare <invoke> works)
-//   2. Bracket: [TOOL_CALL]{ "name": "web_search", "arguments": { "query": "cats" } }[/TOOL_CALL]
-//   3. Fenced:  ```json | ```tool_call | ```tool_code | ```<known_tool_name>
-//               containing either {name, arguments} or, when fenced by a tool
-//               name, the bare arguments object.
-//
-// Every recovered call is normalised to the native shape so the rest of the
-// loop is channel-agnostic: { id, name, arguments } where `arguments` is a
-// JSON STRING (exactly like OpenAI delta.tool_calls[].function.arguments).
-
 let _seq = 0;
 function genId() {
   return `fallback_${Date.now().toString(36)}_${(++_seq).toString(36)}`;
 }
 
-// Coerce a parsed args value into the canonical JSON-string form.
 function argsToString(args) {
   if (args == null) return '{}';
   if (typeof args === 'string') {
@@ -30,9 +12,9 @@ function argsToString(args) {
     if (!t) return '{}';
     try {
       JSON.parse(t);
-      return t; // already valid JSON text
+      return t;
     } catch {
-      return JSON.stringify({ value: args }); // opaque string → wrap
+      return JSON.stringify({ value: args });
     }
   }
   try {
@@ -48,8 +30,6 @@ function pushCall(out, name, args) {
   out.push({ id: genId(), name: n, arguments: argsToString(args) });
 }
 
-// --- 1. XML <invoke name="…"><parameter name="…">…</parameter></invoke> -----
-// Bounded, forward-only scan via indexOf (no catastrophic backtracking on
 // untrusted model output).
 function parseXmlInvokes(text, out) {
   const lower = text.toLowerCase();
@@ -76,7 +56,6 @@ function parseXmlInvokes(text, out) {
   }
 }
 
-// Parameter values arrive as text; recover numbers/booleans/JSON where obvious.
 function coerceScalar(v) {
   if (v === 'true') return true;
   if (v === 'false') return false;
@@ -85,13 +64,11 @@ function coerceScalar(v) {
     try {
       return JSON.parse(v);
     } catch {
-      /* fall through */
     }
   }
   return v;
 }
 
-// --- 2. [TOOL_CALL]{ … }[/TOOL_CALL] ----------------------------------------
 function parseBracketCalls(text, out) {
   const re = /\[TOOL_CALL\]\s*([\s\S]*?)\[\/TOOL_CALL\]/gi;
   let m;
@@ -100,7 +77,6 @@ function parseBracketCalls(text, out) {
   }
 }
 
-// --- 3. ```fence … ``` ------------------------------------------------------
 function parseFencedCalls(text, knownNames, out) {
   const re = /```([A-Za-z0-9_-]*)\s*\n([\s\S]*?)```/g;
   let m;
@@ -111,20 +87,17 @@ function parseFencedCalls(text, knownNames, out) {
     if (lang === 'json' || lang === 'tool_call' || lang === 'tool_code') {
       addJsonCall(body, null, out);
     } else if (knownNames.has(lang)) {
-      // Fenced by a tool name: body is the arguments object for that tool.
       addJsonCall(body, lang, out);
     }
   }
 }
 
-// Parse a JSON blob that is either {name, arguments|parameters} (forcedName=null)
-// or the bare arguments object for `forcedName`.
 function addJsonCall(body, forcedName, out) {
   let obj;
   try {
     obj = JSON.parse(body);
   } catch {
-    return; // not JSON — ignore (likely illustrative text)
+    return;
   }
   if (Array.isArray(obj)) {
     for (const item of obj) addParsedObject(item, forcedName, out);
@@ -157,7 +130,6 @@ function parseToolCalls(rawContent, opts = {}) {
   parseXmlInvokes(rawContent, out);
   parseBracketCalls(rawContent, out);
   parseFencedCalls(rawContent, knownNames, out);
-  // De-dupe identical (name + args) recoveries (a call can match two notations).
   const seen = new Set();
   return out.filter((c) => {
     const sig = `${c.name}:${c.arguments}`;

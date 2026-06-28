@@ -1,19 +1,5 @@
 'use strict';
 
-// create_document — write a document to the user's Documents folder and (by
-// default) open it. Supports Word (.docx), PDF, Excel (.xlsx) and plain text
-// formats (txt, md, html, csv). The rich formats are produced by libraries
-// (docx, pdfkit, exceljs) that are lazy-required per format, so a request for
-// one format never loads — or fails on — the others.
-//
-// Tables: the model can include GitHub-style markdown tables in `content`, e.g.
-//   | Name | Score |
-//   | ---- | ----- |
-//   | Ann  | 10    |
-// These are parsed and rendered as REAL tables — a Word table in .docx, an HTML
-// <table> in .html, and (via Electron's printToPDF) a proper table in .pdf —
-// rather than printed as literal markdown.
-
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -26,13 +12,10 @@ function htmlEscape(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// --- markdown block parsing -------------------------------------------------
-// Splits content into a sequence of blocks: headings, GFM tables, paragraphs.
 function isPipeRow(line) {
   return /\|/.test(line) && /\S/.test(line);
 }
 function isTableSeparator(line) {
-  // | --- | :--: | ---: |   (at least two dashes per column avoids matching prose)
   return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line);
 }
 function parseCells(line) {
@@ -55,7 +38,6 @@ function parseBlocks(content) {
       i++;
       continue;
     }
-    // A pipe row immediately followed by a separator row starts a table.
     if (isPipeRow(line) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
       const header = parseCells(line);
       i += 2;
@@ -73,14 +55,11 @@ function parseBlocks(content) {
   return blocks;
 }
 
-// --- tabular helpers (xlsx / csv) ------------------------------------------
 function csvCell(v) {
   const s = v == null ? '' : String(v);
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-// Normalise tabular input: explicit `rows`, else a markdown table in `content`,
-// else comma-separated lines.
 function toRows(rows, content) {
   if (Array.isArray(rows) && rows.length) {
     return rows.map((r) => (Array.isArray(r) ? r : typeof r === 'object' && r ? Object.values(r) : [r]));
@@ -91,7 +70,6 @@ function toRows(rows, content) {
   return [];
 }
 
-// --- HTML (shared by the html format and the PDF renderer) -----------------
 function htmlTable(block) {
   const cols = block.header.length || Math.max(0, ...block.rows.map((r) => r.length));
   const pad = (r) => {
@@ -131,7 +109,6 @@ function buildHtmlDocument(title, content) {
   );
 }
 
-// --- per-format writers ----------------------------------------------------
 async function writeDocx(file, title, content) {
   const docx = require('docx');
   const { Document, Packer, Paragraph, HeadingLevel } = docx;
@@ -171,9 +148,6 @@ function docxTable(docx, block) {
   });
 }
 
-// PDF: render the HTML (tables included) in a hidden Electron window and print
-// it to PDF. Falls back to a plain-text pdfkit render when Electron isn't
-// available (e.g. a headless script) — no tables in that path.
 function electronPdfAvailable() {
   try {
     const e = require('electron');
@@ -204,12 +178,10 @@ async function writePdfFromHtml(file, html) {
     try {
       win.destroy();
     } catch {
-      /* already gone */
     }
     try {
       fs.unlinkSync(tmp);
     } catch {
-      /* temp cleanup best-effort */
     }
   }
 }
@@ -256,19 +228,16 @@ function writeText(file, title, content) {
   fs.writeFileSync(file, title ? `${title}\n\n${content || ''}` : String(content || ''));
 }
 
-// Open the finished file in its default application (best-effort).
 function openFile(file) {
   try {
     const { shell } = require('electron');
     if (shell && shell.openPath) shell.openPath(file);
   } catch {
-    // No Electron shell available (e.g. headless) — creation still succeeded.
   }
 }
 
 module.exports = {
   name: 'create_document',
-  // Effectful (writes a file), so plan mode blocks it; available in chat + agent.
   description:
     'Create a document file for the user and open it. Use when the user asks to make/write/save a ' +
     'Word document, PDF, Excel spreadsheet, text/markdown file, web page, or CSV. Supported formats: ' +
@@ -328,7 +297,7 @@ module.exports = {
       case 'html':
         writeHtml(file, title, content);
         break;
-      default: // txt, md
+      default:
         writeText(file, title, content);
     }
 

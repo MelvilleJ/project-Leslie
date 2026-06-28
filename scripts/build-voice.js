@@ -1,9 +1,5 @@
 'use strict';
 
-// Bundles the voice pipeline (transformers.js + the mic/VAD code) into a single
-// ESM bundle for the hidden voice window, and copies the onnxruntime-web wasm
-// assets next to it (referenced at runtime via env.backends.onnx.wasm.wasmPaths).
-
 const esbuild = require('esbuild');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -17,7 +13,7 @@ async function main() {
     entryPoints: { 'voice.bundle': path.join(ROOT, 'src', 'voice', 'voice.js') },
     bundle: true,
     format: 'esm',
-    splitting: true, // needed for transformers.js dynamic imports
+    splitting: true,
     outdir: RENDERER,
     chunkNames: 'voice-chunk-[hash]',
     platform: 'browser',
@@ -26,7 +22,6 @@ async function main() {
     logLevel: 'info'
   });
 
-  // Copy ORT wasm/mjs assets so the renderer can load them from ./ort/ (no CDN).
   fs.mkdirSync(ORT_DIR, { recursive: true });
   const sources = [
     path.join(ROOT, 'node_modules', '@huggingface', 'transformers', 'dist'),

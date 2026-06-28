@@ -2,11 +2,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-// Secure bridge for the settings window. Exposes a small, explicit surface as
-// window.settingsApi — no raw ipcRenderer. Covers config editing, past
-// conversations, long-term memory, the live system monitor, and model listing.
 contextBridge.exposeInMainWorld('settingsApi', {
-  // --- Config -----------------------------------------------------------------
   /** The editable-field schema (plain data) used to build the form. */
   getSchema: () => ipcRenderer.invoke('settings:schema'),
   /** Current values of every editable field + the active mode. */
@@ -34,13 +30,11 @@ contextBridge.exposeInMainWorld('settingsApi', {
     return () => ipcRenderer.removeListener('settings:conversations-changed', l);
   },
 
-  // --- Models -----------------------------------------------------------------
   /** List models advertised by the configured server (/v1/models). */
   listModels: () => ipcRenderer.invoke('models:list'),
   /** Probe the configured server; returns { ok } or { ok:false, error }. */
   testConnection: () => ipcRenderer.invoke('models:test'),
 
-  // --- Conversations ----------------------------------------------------------
   listConversations: () => ipcRenderer.invoke('conv:list'),
   getConversation: (id) => ipcRenderer.invoke('conv:get', id),
   resumeConversation: (id) => ipcRenderer.invoke('conv:resume', id),
@@ -48,12 +42,10 @@ contextBridge.exposeInMainWorld('settingsApi', {
   clearConversations: () => ipcRenderer.invoke('conv:clear'),
   newConversation: () => ipcRenderer.invoke('conv:new'),
 
-  // --- Memory (remembered preferences) ---------------------------------------
   listMemories: () => ipcRenderer.invoke('memory:list'),
   deleteMemory: (id) => ipcRenderer.invoke('memory:delete', id),
   clearMemories: () => ipcRenderer.invoke('memory:clear'),
 
-  // --- System monitor ---------------------------------------------------------
   /** One live CPU/GPU/RAM/app sample. Poll on an interval from the renderer. */
   sampleSystem: () => ipcRenderer.invoke('sys:sample')
 });

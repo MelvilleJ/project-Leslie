@@ -1,22 +1,9 @@
 'use strict';
 
-// Tool selection ("tool RAG"). Instead of advertising every tool on every turn
-// (which overwhelms small models and wastes context), pick the relevant subset
-// for the user's query. Ported in shape from Odysseus's src/tool_index.py:
-// an ALWAYS_AVAILABLE baseline + keyword hints, with an optional local-embedding
-// retrieval path that falls back to keywords on any error.
-//
-// Toggles (config): toolRag (master, default on), toolRagEmbeddings (default off),
-// toolRagTopK, toolRagModel.
-
 const config = require('../config');
 
-// Tools to always include regardless of the query. Kept empty for LESLIE — the
-// keyword/embedding paths cover its small tool set — but the hook exists so a
-// must-have tool can be pinned later without touching the loop.
 const ALWAYS_AVAILABLE = new Set([]);
 
-// keyword(s) -> tool names. A query containing any keyword pulls in its tools.
 const KEYWORD_HINTS = [
   [['search', 'find', 'look up', 'lookup', 'google', 'news', 'latest', 'who is', 'what is', 'when', 'where'], ['web_search']],
   [['research', 'compare', 'comparison', 'in depth', 'in-depth', 'detailed', 'sources', 'how to', 'how do'], ['deep_search']],
@@ -39,14 +26,12 @@ function keywordSelect(query, tools) {
   }
   const available = new Set(tools.map((t) => t.name));
   const result = [...picked].filter((n) => available.has(n));
-  // Never strand the model with zero tools: if nothing matched, offer them all.
   return result.length ? result : tools.map((t) => t.name);
 }
 
-// --- Optional embedding path ------------------------------------------------
 let _extractor = null;
 let _extractorPromise = null;
-let _toolVecs = null; // Map<name, Float32Array>
+let _toolVecs = null;
 let _toolVecsKey = '';
 
 async function getExtractor() {
@@ -64,7 +49,7 @@ async function getExtractor() {
 async function embed(text) {
   const extractor = await getExtractor();
   const out = await extractor(text, { pooling: 'mean', normalize: true });
-  return out.data; // normalized → cosine sim == dot product
+  return out.data;
 }
 
 function dot(a, b) {
@@ -111,7 +96,6 @@ async function selectTools(query, tools) {
     try {
       return await embeddingSelect(query, tools);
     } catch (err) {
-      // Model unavailable / load failure — degrade to keywords, never fail the turn.
       console.warn('[toolRag] embedding select failed, using keywords:', err && err.message);
     }
   }

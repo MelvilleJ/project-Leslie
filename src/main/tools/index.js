@@ -1,9 +1,5 @@
 'use strict';
 
-// Tool registry. Add a tool by writing a module that exports
-// { name, description, parameters, run(args, ctx) } and listing it here.
-// `ctx` lets a tool drive the UI (e.g. ctx.openUrl to show a page in the window).
-
 const config = require('../config');
 
 const webSearch = require('./webSearch');
@@ -13,17 +9,12 @@ const openSearch = require('./openSearch');
 const openApp = require('./openApp');
 const remember = require('./remember');
 const createDocument = require('./createDocument');
-// Agent-mode tools execute shell commands — only loaded when explicitly enabled.
 const runCommand = require('./runCommand');
 const installSoftware = require('./installSoftware');
 
 const base = [webSearch, deepSearch, openUrl, openSearch, openApp, createDocument];
-// Shell-executing tools, gated behind agent mode (toggleable at runtime).
 const agentTools = [runCommand, installSoftware];
 
-// The currently-active tools, recomputed each call so a runtime toggle
-// (config.agentMode / config.learningMode) takes effect immediately — no restart
-// needed. `remember` is only offered while learning mode is on.
 function active() {
   const list = config.agentMode ? [...base, ...agentTools] : [...base];
   if (config.learningMode) list.push(remember);

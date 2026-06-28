@@ -1,19 +1,7 @@
 'use strict';
 
-// open_app — launches a desktop application on the user's computer.
-// Runs in the main process, so it has full Node access (child_process).
-//
-// A small alias table maps friendly/spoken names ("calculator", "browser") to
-// the right launch command per platform. Anything not in the table is passed
-// through to the OS launcher, which resolves it via PATH / App Paths / Spotlight.
-
 const { spawn } = require('node:child_process');
 
-// Friendly name -> platform-specific launch target.
-//   win   : program for `start` (an .exe on PATH/App Paths, or a shell: URI)
-//   mac   : application name for `open -a`, or a "uri:" form handled below
-//   linux : binary name on PATH
-// Keys are matched after lowercasing and collapsing whitespace.
 const ALIASES = {
   calculator: { win: 'calc', mac: 'Calculator', linux: 'gnome-calculator' },
   calc: { win: 'calc', mac: 'Calculator', linux: 'gnome-calculator' },
@@ -52,9 +40,6 @@ function platformKey() {
   return 'linux';
 }
 
-// Spawn a detached child and report whether it started. Errors from the OS
-// launcher (e.g. unknown program) arrive on the 'error' event asynchronously,
-// so we wait briefly for one before declaring success.
 function launch(command, args) {
   return new Promise((resolve, reject) => {
     let child;
@@ -74,7 +59,6 @@ function launch(command, args) {
       settled = true;
       reject(err);
     });
-    // No 'error' within a short window means the launcher accepted it.
     setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -110,13 +94,10 @@ module.exports = {
     const target = (mapped && mapped[platformKey()]) || requested;
 
     if (process.platform === 'win32') {
-      // `start` resolves App Paths / PATH and handles shell: URIs. The empty
-      // first argument is the window title that `start` otherwise consumes.
       await launch('cmd.exe', ['/c', 'start', '', target]);
     } else if (process.platform === 'darwin') {
       await launch('open', ['-a', target]);
     } else {
-      // Linux: an alias may carry its own arguments (e.g. "libreoffice --calc").
       const [bin, ...rest] = target.split(' ');
       await launch(bin, rest);
     }

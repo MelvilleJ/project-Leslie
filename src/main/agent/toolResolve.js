@@ -1,17 +1,7 @@
 'use strict';
 
-// Decide which tool-call channel a turn used. Ported from Odysseus's
-// _resolve_tool_blocks (src/agent_loop.py).
-//
-// Rule: if the model emitted native `tool_calls`, trust ONLY those and do NOT
-// also scan the prose for fenced blocks — for a model with a working native
-// channel, a ```json fence in its reply is almost always an illustrative
-// example for the user, and executing it causes accidental runs. Only when the
-// native channel produced nothing do we fall back to parsing the text.
-
 const { parseToolCalls, argsToString } = require('./toolParsing');
 
-// Normalise a native OpenAI tool_call into { id, name, arguments(string) }.
 function fromNative(tc, i) {
   return {
     id: tc.id || `call_${i}`,

@@ -1,11 +1,5 @@
 'use strict';
 
-// Pure wake-word detection — no DOM, so it can be unit-tested in Node and reused
-// by the voice pipeline. Whisper isn't a purpose-built wake-word engine, so we
-// match fuzzily on the key name token (the last word of the wake phrase, e.g.
-// "leslie") to tolerate transcription noise ("lesley", "leslee", …).
-
-// Levenshtein edit distance (small strings, simple DP).
 function levenshtein(a, b) {
   const m = a.length;
   const n = b.length;
@@ -26,7 +20,6 @@ function levenshtein(a, b) {
 
 const cleanToken = (t) => t.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-// A name token matches if it's close to the target (edit distance scaled by length).
 function isNameToken(token, target) {
   if (!token) return false;
   if (token === target) return true;

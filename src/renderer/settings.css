@@ -19,12 +19,11 @@ body {
   background-attachment: fixed;
 }
 
-/* --- Title bar (drag handle) --- */
 #bar {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 0 150px 0 16px; /* reserve right for native caption buttons */
+  padding: 0 150px 0 16px;
   height: 44px;
   flex: 0 0 auto;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -48,7 +47,6 @@ body {
   50% { opacity: 1; box-shadow: 0 0 12px 2px rgba(155, 123, 255, 0.95); }
 }
 
-/* Mode strip in the title bar */
 #mode-strip { display: flex; gap: 6px; }
 .mode-btn {
   padding: 4px 10px; font-size: 0.72rem; color: #c8c8d8;
@@ -65,7 +63,6 @@ body {
   box-shadow: 0 0 12px rgba(123, 75, 196, 0.4);
 }
 
-/* --- Shell: nav + main --- */
 #shell { flex: 1 1 auto; display: flex; min-height: 0; }
 
 #nav {
@@ -102,7 +99,6 @@ body {
 .panel-head h2 { font-size: 1.15rem; color: #f3f1fb; font-weight: 600; }
 .panel-actions { display: flex; align-items: center; gap: 8px; }
 
-/* --- Buttons --- */
 .btn {
   padding: 7px 13px; font-size: 0.78rem; color: #e8e8ee;
   background: rgba(123, 75, 196, 0.22);
@@ -115,7 +111,6 @@ body {
 .btn.danger:hover { background: rgba(196, 75, 90, 0.4); border-color: rgba(255, 139, 155, 0.65); }
 .btn.small { padding: 4px 9px; font-size: 0.7rem; }
 
-/* --- Cards (frosted panels) --- */
 .card, .reader, .list, .form {
   background: rgba(30, 31, 58, 0.45);
   border: 1px solid rgba(255, 255, 255, 0.07);
@@ -125,7 +120,6 @@ body {
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 12px 40px rgba(0, 0, 0, 0.3);
 }
 
-/* --- Forms --- */
 .form { padding: 6px 4px; }
 .field {
   display: grid;
@@ -157,12 +151,10 @@ input:focus, textarea:focus, select:focus {
 textarea { min-height: 92px; resize: vertical; line-height: 1.5; }
 input[type="number"] { max-width: 130px; }
 
-/* Range + value */
 .range-wrap { display: flex; align-items: center; gap: 12px; width: 100%; }
 input[type="range"] { flex: 1 1 auto; accent-color: #9b7bff; }
 .range-val { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; color: #cfcce0; font-size: 0.82rem; }
 
-/* Toggle switch */
 .switch { position: relative; width: 44px; height: 24px; flex: 0 0 auto; cursor: pointer; }
 .switch input { opacity: 0; width: 0; height: 0; }
 .slider {
@@ -178,7 +170,6 @@ input[type="range"] { flex: 1 1 auto; accent-color: #9b7bff; }
 .switch input:checked + .slider { background: rgba(123, 75, 196, 0.7); border-color: rgba(177, 139, 255, 0.7); }
 .switch input:checked + .slider::before { transform: translateX(20px); background: #fff; }
 
-/* --- Lists (conversations / memory) --- */
 .split { display: grid; grid-template-columns: 300px 1fr; gap: 16px; height: calc(100vh - 170px); }
 .list { padding: 8px; overflow-y: auto; }
 .list.wide { max-height: calc(100vh - 170px); }
@@ -198,7 +189,6 @@ input[type="range"] { flex: 1 1 auto; accent-color: #9b7bff; }
 }
 .row-actions { display: flex; gap: 6px; margin-top: 6px; }
 
-/* Memory rows are horizontal */
 .mem-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 11px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -207,7 +197,6 @@ input[type="range"] { flex: 1 1 auto; accent-color: #9b7bff; }
 .mem-row .mem-text { font-size: 0.86rem; color: #ececf4; }
 .mem-row .mem-src { font-size: 0.68rem; color: #9a9ab0; }
 
-/* Conversation reader */
 .reader { padding: 18px 20px; overflow-y: auto; }
 .reader .turn { margin-bottom: 14px; }
 .reader .turn .who { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; color: #9a9ab0; margin-bottom: 3px; }
@@ -216,7 +205,6 @@ input[type="range"] { flex: 1 1 auto; accent-color: #9b7bff; }
 .reader .turn.assistant .text { color: #e8e8ee; }
 .reader-head { display: flex; gap: 8px; margin-bottom: 14px; }
 
-/* --- System cards --- */
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
 .scard {
   padding: 16px 18px;
@@ -236,7 +224,6 @@ input[type="range"] { flex: 1 1 auto; accent-color: #9b7bff; }
 .kv { display: flex; justify-content: space-between; font-size: 0.78rem; padding: 3px 0; color: #c8c8d8; }
 .kv .k { color: #9a9ab0; }
 
-/* --- Status / misc --- */
 .status-line { margin-bottom: 12px; }
 .status-line.ok { color: #8fe0a8; }
 .status-line.err { color: #ff9bab; }
@@ -244,7 +231,6 @@ input[type="range"] { flex: 1 1 auto; accent-color: #9b7bff; }
 .small { font-size: 0.74rem; }
 #about .field { grid-template-columns: 180px 1fr; }
 
-/* Toast */
 #toast {
   position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
   padding: 8px 16px; font-size: 0.8rem; color: #eafff0;
@@ -258,7 +244,6 @@ input[type="range"] { flex: 1 1 auto; accent-color: #9b7bff; }
 
 .hidden { display: none !important; }
 
-/* Scrollbars */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(177, 139, 255, 0.3); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }

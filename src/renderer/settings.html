@@ -19,7 +19,6 @@
   </header>
 
   <div id="shell">
-    <!-- Left navigation -->
     <nav id="nav">
       <button class="nav-item active" data-panel="conversations" type="button">🗂 Conversations</button>
       <button class="nav-item" data-panel="system" type="button">📊 System</button>
@@ -31,9 +30,7 @@
       <button class="nav-item" data-panel="about" type="button">ℹ️ About</button>
     </nav>
 
-    <!-- Panels -->
     <main id="main">
-      <!-- Conversations -->
       <section class="panel active" data-panel="conversations">
         <div class="panel-head">
           <h2>Past conversations</h2>
@@ -50,7 +47,6 @@
         </div>
       </section>
 
-      <!-- System monitor -->
       <section class="panel" data-panel="system">
         <div class="panel-head"><h2>System monitor</h2>
           <div class="panel-actions"><span id="sys-pause-label" class="muted small">live</span>
@@ -59,7 +55,6 @@
         <div id="sys-grid" class="cards"></div>
       </section>
 
-      <!-- Connection / model -->
       <section class="panel" data-panel="connection">
         <div class="panel-head"><h2>Model &amp; connection</h2>
           <div class="panel-actions">
@@ -71,25 +66,21 @@
         <div id="form-connection" class="form"></div>
       </section>
 
-      <!-- Generation -->
       <section class="panel" data-panel="generation">
         <div class="panel-head"><h2>Generation</h2></div>
         <div id="form-generation" class="form"></div>
       </section>
 
-      <!-- Behaviour -->
       <section class="panel" data-panel="behaviour">
         <div class="panel-head"><h2>Behaviour</h2></div>
         <div id="form-behaviour" class="form"></div>
       </section>
 
-      <!-- Voice -->
       <section class="panel" data-panel="voice">
         <div class="panel-head"><h2>Voice</h2></div>
         <div id="form-voice" class="form"></div>
       </section>
 
-      <!-- Memory -->
       <section class="panel" data-panel="memory">
         <div class="panel-head"><h2>What LESLIE remembers</h2>
           <div class="panel-actions"><button id="mem-clear" class="btn danger" type="button">Forget all</button></div>
@@ -97,7 +88,6 @@
         <div id="mem-list" class="list wide"></div>
       </section>
 
-      <!-- About -->
       <section class="panel" data-panel="about">
         <div class="panel-head"><h2>About</h2></div>
         <div id="about" class="form"></div>
@@ -105,7 +95,6 @@
     </main>
   </div>
 
-  <!-- Tiny "saved" toast -->
   <div id="toast" class="hidden"></div>
 
   <datalist id="model-options"></datalist>

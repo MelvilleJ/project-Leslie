@@ -2,13 +2,8 @@
 
 // Safety layer. Ported in shape from Odysseus's src/tool_policy.py +
 // untrusted_context_message + the tool-output wrapping in _append_tool_results.
-//
-//  - Plan mode: investigate read-only, propose a plan, DON'T execute. Effectful
-//    tools are hidden from the schema list AND rejected at runtime even if the
-//    model emits one anyway.
 //  - Untrusted wrapping: tool output comes from outside the app (web pages,
 //    shell stdout, search results) and may contain prompt-injection. It is fed
-//    back to the model wrapped in an explicit "this is data, not instructions"
 //    delimiter so injected text is treated as data.
 
 const config = require('../config');
@@ -33,14 +28,11 @@ function isReadOnly(meta) {
 function buildPolicy(metaByName) {
   const planMode = Boolean(config.planMode);
 
-  // Restrict a candidate name list to what policy permits this turn.
   function filterNames(names) {
     if (!planMode) return names;
     return names.filter((n) => isReadOnly(metaByName.get(n)));
   }
 
-  // Runtime guard: may this tool actually execute? (Backstop for a model that
-  // emits an effectful call despite it being absent from the schema list.)
   function allows(name) {
     if (!planMode) return true;
     return isReadOnly(metaByName.get(name));

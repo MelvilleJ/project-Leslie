@@ -1,20 +1,7 @@
 'use strict';
 
-// One streaming model turn over an OpenAI-compatible /chat/completions endpoint.
-// Splits the content stream into channels (reasoning / summary / details) via
-// tags the model is asked to use, accumulates native tool_calls, AND keeps the
-// raw (pre-channel-parse) content so the text-fallback tool parser can scan it
-// when the model emits no native tool_calls.
-//
-//   <think>…</think>       -> thinking  (thought bubble)
-//   <summary>…</summary>   -> summary   (speech bubble)
-//   <details>…</details>   -> details   (detail window)
-// Untagged text defaults to the summary channel, so non-compliant models still
-// work (everything just shows in the bubble).
-
 const config = require('../config');
 
-// Appended to the system prompt so the model produces a summary + optional details.
 const FORMAT_INSTRUCTIONS = [
   'Structure every reply like this:',
   '<summary>One or two short sentences that answer directly.</summary>',
@@ -25,20 +12,16 @@ const FORMAT_INSTRUCTIONS = [
   'Omit the <details> block entirely for simple questions. Never mention these tags to the user.'
 ].join('\n');
 
-// Stream parser: when state S is active, emitted text goes to channel CHANNEL[S].
-// Scanning finds the earliest of ANY marker, so section order can vary.
 const MARKERS = [
   { tag: '<think>', to: 'thinking' },
   { tag: '</think>', to: 'summary' },
   { tag: '<summary>', to: 'summary' },
-  { tag: '</summary>', to: 'details' }, // text after the summary defaults to details
+  { tag: '</summary>', to: 'details' },
   { tag: '<details>', to: 'details' },
   { tag: '</details>', to: 'details' }
 ];
 const CHANNEL = { thinking: 'thinking', summary: 'summary', details: 'details' };
 
-// Longest suffix of `s` that is a prefix of `marker` — lets us hold back a
-// partial tag split across stream chunks instead of leaking it.
 function partialSuffix(s, marker) {
   const max = Math.min(s.length, marker.length - 1);
   for (let k = max; k > 0; k--) {
@@ -89,9 +72,9 @@ async function streamTurn(messages, onEvent, opts = {}) {
 
   let summary = '';
   let details = '';
-  let rawContent = ''; // every content delta, untouched — for the text-fallback parser
+  let rawContent = '';
   let contentBuffer = '';
-  let state = 'summary'; // untagged content -> summary (graceful fallback)
+  let state = 'summary';
   const toolCalls = [];
 
   const emit = (channel, text) => {
@@ -175,7 +158,6 @@ async function streamTurn(messages, onEvent, opts = {}) {
           }
         }
       } catch {
-        // Ignore keep-alives and any non-JSON noise.
       }
     }
   }

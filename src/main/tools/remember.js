@@ -1,10 +1,5 @@
 'use strict';
 
-// remember — save a durable fact/preference about the user so Leslie recalls it
-// in future sessions (the model-driven half of learning mode). Writes only to
-// the local memory store (memory.js); marked readOnly so plan mode keeps it
-// available — it's harmless, unlike the shell-effectful tools.
-
 const memory = require('../memory');
 
 module.exports = {

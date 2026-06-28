@@ -1,10 +1,5 @@
 'use strict';
 
-// Minimal persisted settings — a single JSON file in Electron's userData dir.
-// Used for UI toggles (e.g. agent mode) that should survive restarts, layered
-// on top of the .env defaults read by config.js. Best-effort: any I/O failure
-// falls back to in-memory defaults rather than throwing.
-
 const fs = require('node:fs');
 const path = require('node:path');
 const { app } = require('electron');
@@ -38,7 +33,6 @@ function set(key, value) {
   try {
     fs.writeFileSync(file(), JSON.stringify(data, null, 2));
   } catch {
-    // Non-fatal: the value still applies in-memory for this session.
   }
   return value;
 }

@@ -1,13 +1,7 @@
 'use strict';
 
-// Settings window renderer. Talks to the main process only through
-// window.settingsApi (see settingsPreload.js). Builds the config forms from the
-// schema, lists/reads/resumes past conversations, polls the live system
-// monitor, and manages remembered preferences.
-
 const api = window.settingsApi;
 
-// --- tiny DOM helper --------------------------------------------------------
 function el(tag, props = {}, ...kids) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
@@ -31,7 +25,6 @@ function toast(msg, isErr = false) {
   toastTimer = setTimeout(() => t.classList.add('hidden'), 1800);
 }
 
-// --- panel navigation -------------------------------------------------------
 const navButtons = [...document.querySelectorAll('.nav-item')];
 const panels = [...document.querySelectorAll('.panel')];
 let activePanel = 'conversations';
@@ -47,7 +40,6 @@ function showPanel(name) {
 }
 navButtons.forEach((b) => b.addEventListener('click', () => showPanel(b.dataset.panel)));
 
-// --- mode strip -------------------------------------------------------------
 const modeButtons = [...document.querySelectorAll('.mode-btn')];
 function reflectMode(mode) {
   modeButtons.forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
@@ -61,7 +53,6 @@ modeButtons.forEach((b) =>
 );
 api.onMode((mode) => reflectMode(mode));
 
-// --- config forms (built from schema) ---------------------------------------
 const GROUP_TO_CONTAINER = {
   Connection: 'form-connection',
   Generation: 'form-generation',
@@ -119,7 +110,6 @@ function renderField(field, value) {
     input.addEventListener('change', () => save(field.key, Number(input.value), field.label));
     control.append(input);
   } else {
-    // string / password
     const input = el('input', { type: field.type === 'password' ? 'password' : 'text' });
     input.value = value ?? '';
     if (field.key === 'model') input.setAttribute('list', 'model-options');
@@ -131,12 +121,10 @@ function renderField(field, value) {
   return el('div', { class: 'field' }, label, control);
 }
 
-// React to config changes made elsewhere (the tray's learning toggle, etc.).
 api.onConfigChanged?.(({ key }) => {
   if (key === 'learningMode') buildAbout();
 });
 
-// --- Model & connection actions ---------------------------------------------
 const connStatus = document.getElementById('conn-status');
 document.getElementById('model-refresh').addEventListener('click', async () => {
   connStatus.textContent = 'Listing models…';
@@ -163,7 +151,6 @@ document.getElementById('conn-test').addEventListener('click', async () => {
   connStatus.className = `status-line ${res.ok ? 'ok' : 'err'} small`;
 });
 
-// --- Conversations ----------------------------------------------------------
 const convListEl = document.getElementById('conv-list');
 const convDetailEl = document.getElementById('conv-detail');
 let selectedConv = null;
@@ -257,7 +244,6 @@ document.getElementById('conv-clear').addEventListener('click', async () => {
 });
 api.onConversationsChanged?.(() => { if (activePanel === 'conversations') loadConversations(); });
 
-// --- Memory -----------------------------------------------------------------
 const memListEl = document.getElementById('mem-list');
 async function loadMemories() {
   const items = await api.listMemories();
@@ -287,7 +273,6 @@ document.getElementById('mem-clear').addEventListener('click', async () => {
   toast('All memories forgotten');
 });
 
-// --- System monitor ---------------------------------------------------------
 const sysGrid = document.getElementById('sys-grid');
 let monitorTimer = null;
 let monitorPaused = false;
@@ -310,21 +295,18 @@ function kv(k, v) { return el('div', { class: 'kv' }, el('span', { class: 'k', t
 function renderSystem(s) {
   sysGrid.innerHTML = '';
 
-  // CPU
   sysGrid.append(scard('Processor',
     el('div', { class: 'big', text: `${s.cpu.usagePct}%` }),
     meter(s.cpu.usagePct),
     el('div', { class: 'sub', text: `${s.cpu.cores} cores · ${s.cpu.model}` })
   ));
 
-  // Memory
   sysGrid.append(scard('Memory',
     el('div', { class: 'big', text: `${s.mem.pct}%` }),
     meter(s.mem.pct),
     el('div', { class: 'sub', text: `${gb(s.mem.usedMB)} / ${gb(s.mem.totalMB)} GB used` })
   ));
 
-  // GPU(s)
   if (s.gpu.available && s.gpu.gpus.length) {
     for (const g of s.gpu.gpus) {
       const memPct = g.memTotalMB ? Math.round((g.memUsedMB / g.memTotalMB) * 100) : 0;
@@ -345,7 +327,6 @@ function renderSystem(s) {
     ));
   }
 
-  // LESLIE process
   sysGrid.append(scard('LESLIE (this app)',
     el('div', { class: 'big', text: `${s.app.cpuPct}%` }),
     el('div', { class: 'sub', text: 'CPU across all processes' }),
@@ -353,7 +334,6 @@ function renderSystem(s) {
     kv('Processes', String(s.app.processes))
   ));
 
-  // Host
   sysGrid.append(scard('Host',
     kv('Platform', `${s.host.platform} · ${s.host.arch}`),
     kv('Hostname', s.host.hostname),
@@ -367,7 +347,6 @@ async function tickMonitor() {
     const s = await api.sampleSystem();
     renderSystem(s);
   } catch {
-    // ignore transient sampling errors
   }
 }
 function startMonitor() {
@@ -384,7 +363,6 @@ document.getElementById('sys-pause').addEventListener('click', () => {
   document.getElementById('sys-pause-label').textContent = monitorPaused ? 'paused' : 'live';
 });
 
-// --- About ------------------------------------------------------------------
 async function buildAbout() {
   const state = await api.getConfig();
   const v = state.values;
@@ -403,7 +381,6 @@ async function buildAbout() {
   );
 }
 
-// --- boot -------------------------------------------------------------------
 buildForms();
 buildAbout();
 loadConversations();

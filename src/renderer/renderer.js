@@ -1,9 +1,5 @@
 'use strict';
 
-// Renderer process: drives the companion's animation, the chat input, the
-// streaming answer bubble, and the reasoning ("thought") bubble. Talks to the
-// agent only through `window.leslie`.
-
 const companion = document.getElementById('companion');
 const thought = document.getElementById('thought');
 const thoughtText = document.getElementById('thought-text');
@@ -19,11 +15,6 @@ const confirmNo = document.getElementById('confirm-no');
 const agentToggle = document.getElementById('agent-toggle');
 const settingsBtn = document.getElementById('settings-btn');
 
-// --- Sprite animations ------------------------------------------------------
-// Each animation is its own spritesheet (PNG + grid). We drive the current frame
-// via inline styles rather than per-sheet CSS classes, so multiple sheets can
-// coexist without their identical .sprite-N class names colliding. All frames are
-// 537px tall so switching animations doesn't change LESLIE's size.
 const ANIMATIONS = {
   idle: {
     sheet: '../../assets/animations/idle/spritesheet.png',
@@ -64,11 +55,7 @@ function playAnimation(name) {
 
 playAnimation('idle');
 
-// --- Window auto-fit --------------------------------------------------------
-// Measure the visible content and ask the main process to resize the window
-// (bottom-pinned) so tall bubbles grow the window UPWARD instead of shoving the
-// sprite around. Coalesced to one request per animation frame.
-const FIT_PAD = 14; // breathing room above the topmost element
+const FIT_PAD = 14;
 let lastFitHeight = 0;
 let fitScheduled = false;
 
@@ -88,7 +75,7 @@ function measureContentHeight() {
 
 function fitWindow() {
   const height = measureContentHeight();
-  if (Math.abs(height - lastFitHeight) < 3) return; // ignore sub-pixel jitter
+  if (Math.abs(height - lastFitHeight) < 3) return;
   lastFitHeight = height;
   window.leslie.fitHeight(height);
 }
@@ -102,7 +89,6 @@ function scheduleFit() {
   });
 }
 
-// --- Bubbles ----------------------------------------------------------------
 let hideTimer = null;
 
 function clearHideTimer() {
@@ -116,7 +102,6 @@ function hideThought() {
   thought.classList.add('hidden');
 }
 
-// Hiding the answer dismisses the whole exchange, reasoning included.
 function hideAll() {
   bubble.classList.add('hidden');
   hideThought();
@@ -135,10 +120,8 @@ function showBubble(text, { thinking = false, autoHideMs = 0 } = {}) {
   }
 }
 
-// --- Chat ------------------------------------------------------------------
 let streaming = false;
 
-// Reasoning tokens flow into the thought bubble.
 window.leslie.onAgentThink((delta) => {
   if (!streaming) return;
   if (thought.classList.contains('hidden')) {
@@ -150,8 +133,6 @@ window.leslie.onAgentThink((delta) => {
   scheduleFit();
 });
 
-// Answer tokens flow into the speech bubble. The first one ends the "thinking"
-// placeholder and folds the reasoning away so the answer takes focus.
 window.leslie.onAgentChunk((delta) => {
   if (!streaming) return;
   if (bubble.classList.contains('thinking')) {
@@ -160,12 +141,10 @@ window.leslie.onAgentChunk((delta) => {
     if (!thought.classList.contains('hidden')) thought.classList.add('collapsed');
   }
   bubbleText.textContent += delta;
-  bubbleText.scrollTop = bubbleText.scrollHeight; // keep newest text in view
+  bubbleText.scrollTop = bubbleText.scrollHeight;
   scheduleFit();
 });
 
-// A long answer was diverted to the details window mid-stream: collapse the
-// bubble to a short teaser + pointer so it isn't a wall of text.
 const DETAILS_POINTER = '📄 Full answer in the details window.';
 function detailsTeaser(teaser) {
   return (teaser ? `${teaser}\n\n` : '') + DETAILS_POINTER;
@@ -184,8 +163,7 @@ async function send(text) {
   if (!text || streaming) return;
 
   streaming = true;
-  playAnimation('thinking'); // LESLIE is working on the reply
-  // Reset the reasoning bubble for the new exchange.
+  playAnimation('thinking');
   thoughtText.textContent = '';
   thought.classList.add('hidden');
   thought.classList.remove('collapsed');
@@ -193,23 +171,17 @@ async function send(text) {
 
   const res = await window.leslie.sendMessage(text);
   streaming = false;
-  playAnimation('idle'); // back to resting once the turn is done
+  playAnimation('idle');
 
   if (res && res.error) {
     showBubble(`⚠ ${res.error}`, { autoHideMs: 12000 });
   } else if (res && res.openedInDetails) {
-    // Long answer lives in the details window — keep only the teaser in the bubble.
     showBubble(detailsTeaser(res.teaser), { autoHideMs: 10000 });
   } else {
-    // Ensure the bubble holds the complete reply, then let it linger.
     showBubble((res && res.reply) || bubbleText.textContent, { autoHideMs: 10000 });
   }
 }
 
-// --- Confirmation prompts (agent mode) --------------------------------------
-// Agent-mode tools ask before running a non-allowlisted command. We show the
-// command with Approve/Deny buttons and reply with the user's choice. Multiple
-// requests are unlikely mid-turn, but we track the current id to stay correct.
 let confirmId = null;
 
 function hideConfirm() {
@@ -228,17 +200,13 @@ window.leslie.onConfirm(({ id, message }) => {
   confirmId = id;
   confirmText.textContent = message || 'Run this command?';
   confirmBox.classList.remove('hidden');
-  clearHideTimer(); // don't let the lingering answer bubble's timer fire
+  clearHideTimer();
   scheduleFit();
 });
 
 confirmYes.addEventListener('click', () => answerConfirm(true));
 confirmNo.addEventListener('click', () => answerConfirm(false));
 
-// --- Mode switcher ----------------------------------------------------------
-// LESLIE has three operating modes; the input-row button cycles between them
-// (Chat → Plan → Agent) and reflects the current one. The tray can also switch
-// mode, so we listen for changes too.
 const MODES = ['chat', 'plan', 'agent'];
 const MODE_META = {
   chat: { icon: '💬', label: 'Chat', say: '💬 Chat mode — just conversation.' },
@@ -265,9 +233,8 @@ async function setMode(next, { announce = true } = {}) {
 agentToggle.addEventListener('click', () => {
   setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]);
 });
-window.leslie.onMode((next) => reflectMode(next)); // synced from the tray
+window.leslie.onMode((next) => reflectMode(next));
 
-// --- Slash commands ---------------------------------------------------------
 function clearReasoning() {
   thoughtText.textContent = '';
   thought.classList.add('hidden');
@@ -327,7 +294,6 @@ function runCommand(raw) {
   else showBubble(`Unknown command: /${name}`, { autoHideMs: 5000 });
 }
 
-// --- Input & interaction ----------------------------------------------------
 input.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault();
@@ -342,32 +308,26 @@ input.addEventListener('keydown', (event) => {
   }
 });
 
-// Click the thought bubble to collapse / expand the reasoning.
 thought.addEventListener('click', () => {
   thought.classList.toggle('collapsed');
   scheduleFit();
 });
 
-// Click the companion to toggle / focus the input.
 companion.addEventListener('click', () => {
   inputRow.classList.toggle('hidden');
   if (!inputRow.classList.contains('hidden')) input.focus();
   scheduleFit();
 });
 
-// Mic button: dictate a single utterance (no wake word needed).
 mic.addEventListener('click', () => window.leslie.voiceListenOnce());
 
-// Gear button: open the settings / application-menu window.
 settingsBtn.addEventListener('click', () => window.leslie.openSettings());
 
-// --- Voice ------------------------------------------------------------------
 function revealInput() {
   inputRow.classList.remove('hidden');
   scheduleFit();
 }
 
-// "Type" recognised speech into the input, then (optionally) send it.
 let typingTimer = null;
 function typeText(text, autoSend) {
   if (typingTimer) clearInterval(typingTimer);
@@ -380,7 +340,7 @@ function typeText(text, autoSend) {
     if (i >= text.length) {
       clearInterval(typingTimer);
       typingTimer = null;
-      if (!autoSend) return; // leave it in the input to edit/send manually
+      if (!autoSend) return;
       input.value = '';
       if (text.startsWith('/')) runCommand(text.trim());
       else send(text);
@@ -388,20 +348,17 @@ function typeText(text, autoSend) {
   }, 28);
 }
 
-// Wake word heard -> the window is already being shown by main; reveal input.
 window.leslie.onVoiceWake(({ command }) => {
   revealInput();
   mic.classList.add('listening');
   if (!command) showBubble('Listening…', { autoHideMs: 4000 });
 });
 
-// A dictated command -> type it in and (per config) send.
 window.leslie.onVoiceFinal(({ text, autoSend }) => {
   mic.classList.remove('listening');
   if (text && text.trim()) typeText(text.trim(), autoSend !== false);
 });
 
-// Status feedback (model loading, listening, errors).
 window.leslie.onVoiceStatus(({ state, message }) => {
   mic.classList.toggle('listening', state === 'listening' || state === 'transcribing');
   mic.classList.toggle('off', state === 'off');
@@ -409,10 +366,8 @@ window.leslie.onVoiceStatus(({ state, message }) => {
   else if (state === 'error') showBubble(`⚠ voice: ${message || 'error'}`, { autoHideMs: 8000 });
 });
 
-// Greet on load so it's obvious the companion is alive.
 window.addEventListener('DOMContentLoaded', () => {
   showBubble('Hi, I’m LESLIE — type below to chat.', { autoHideMs: 6000 });
   input.focus();
-  // Reflect the persisted mode in the switcher button.
   window.leslie.getMode().then(reflectMode);
 });

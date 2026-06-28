@@ -7,25 +7,18 @@
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
   <title>LESLIE</title>
-  <!-- Sprite sheets are applied from renderer.js (see ANIMATIONS) so multiple
-       sheets can coexist without their identical .sprite-N classes colliding. -->
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="stage">
-    <!-- Thought bubble: the model's reasoning. Click to collapse/expand. -->
     <div id="thought" class="thought hidden" title="Click to collapse / expand">
       <div id="thought-text"></div>
     </div>
 
-    <!-- Speech bubble: the agent's answer. Outer carries the tail; inner holds
-         the (scrollable) text. -->
     <div id="bubble" class="bubble hidden">
       <div id="bubble-text"></div>
     </div>
 
-    <!-- Confirm bubble: agent mode asks before running a non-allowlisted
-         command. Kept separate so streaming answer chunks can't clobber it. -->
     <div id="confirm" class="bubble confirm hidden">
       <div id="confirm-text"></div>
       <div id="confirm-actions">
@@ -34,11 +27,8 @@
       </div>
     </div>
 
-    <!-- The companion. Dragging it moves the whole window (see styles.css).
-         The sprite sheet/frame is set from renderer.js. -->
     <div id="companion" class="sprite"></div>
 
-    <!-- Chat input + mic. Enter sends, Esc hides; mic dictates one utterance. -->
     <div id="input-row">
       <input id="input" type="text" autocomplete="off" spellcheck="false"
              placeholder="Say something… (/help)" />

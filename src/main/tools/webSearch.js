@@ -1,9 +1,5 @@
 'use strict';
 
-// web_search — queries a SearXNG instance's JSON API and returns ranked results
-// for the model to read. SearXNG must have JSON output enabled in settings.yml
-// (search.formats must include "json"), otherwise it returns 403/format errors.
-
 const config = require('../config');
 
 async function run({ query }) {
@@ -43,7 +39,7 @@ async function run({ query }) {
 
 module.exports = {
   name: 'web_search',
-  readOnly: true, // information-gathering only — allowed in plan mode
+  readOnly: true,
   description:
     'Search the web via SearXNG for current or factual information — recent events, ' +
     'prices, documentation, or anything you are unsure about. Returns ranked results ' +

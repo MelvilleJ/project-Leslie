@@ -1,14 +1,10 @@
 'use strict';
 
-// open_search — opens SearXNG search results in LESLIE's window for the user to
-// browse (the HTML results page, not the JSON API). Use this when the user wants
-// to *see* results; use web_search when the model needs results to answer.
-
 const config = require('../config');
 
 module.exports = {
   name: 'open_search',
-  readOnly: true, // just displays results in LESLIE's window — allowed in plan mode
+  readOnly: true,
   description:
     "Open web search results in LESLIE's window for the user to browse. Use when the " +
     'user asks to look something up, search for, or find information they want to see ' +

@@ -1,10 +1,5 @@
 'use strict';
 
-// run_command — agent-mode tool that executes a shell command on the user's
-// machine. Allowlisted commands run straight away; anything else must be
-// approved by the user (gate -> ctx.confirm -> Approve/Deny bubble). Only
-// registered when LESLIE_AGENT_MODE=1 (see tools/index.js).
-
 const { gate, execShell } = require('./lib/agentShell');
 
 module.exports = {

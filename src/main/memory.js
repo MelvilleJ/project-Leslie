@@ -1,11 +1,6 @@
 'use strict';
 
-// Long-term memory — durable facts/preferences Leslie remembers across sessions
-// (the "learning mode" store). A single JSON file in Electron's userData dir,
-// modelled on settings.js: in-memory cache + best-effort I/O (any failure falls
-// back to memory-only rather than throwing). Captured two ways: the `remember`
 // tool (model-driven) and background extraction (agent/reflect.js), then injected
-// into the system prompt each turn via format().
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -36,7 +31,6 @@ function persist() {
   try {
     fs.writeFileSync(file(), JSON.stringify(cache, null, 2));
   } catch {
-    // Non-fatal: the value still applies in-memory for this session.
   }
 }
 

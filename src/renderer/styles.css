@@ -24,11 +24,6 @@ body {
   justify-content: flex-end;
 }
 
-/* The sprite is the drag handle for the frameless window. Frames are pre-rendered
-   at the display size (3x the original via Real-ESRGAN), so --sprite-scale stays at
-   1 for crisp, blur-free output. If scaled, it's anchored at the feet so it grows
-   upward, with margin-top reserving the gained height so the bubble doesn't overlap;
-   max(0px, ...) keeps a <1 scale from producing a negative margin. */
 #companion {
   --sprite-scale: 1;
   -webkit-app-region: drag;
@@ -42,14 +37,10 @@ body {
   cursor: grabbing;
 }
 
-/* Speech bubble floating above the companion. The outer element draws the
-   bubble + tail (overflow must stay visible for the tail); the inner element
-   holds the scrollable text. */
 .bubble {
   position: relative;
   -webkit-app-region: no-drag;
   max-width: 200px;
-  /* Room below for the tail to sit in the gap above the companion. */
   margin-bottom: 12px;
   padding: 8px 12px;
   background: #ffffff;
@@ -61,8 +52,6 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
-/* Tail: two stacked triangles — the larger one is the border colour, the
-   smaller fill sits on top, leaving a 1px rim so the tail looks outlined. */
 .bubble::before,
 .bubble::after {
   content: '';
@@ -87,8 +76,6 @@ body {
   border-top: 8px solid #ffffff;
 }
 
-/* Scrollable text: cap height so a long reply scrolls inside the bubble
-   instead of growing without bound; the window auto-fits up to this. */
 #bubble-text {
   max-height: 300px;
   overflow-y: auto;
@@ -101,13 +88,10 @@ body {
   display: none;
 }
 
-/* Thinking state: subtle fade while waiting on the first answer token. */
 .bubble.thinking {
   opacity: 0.7;
 }
 
-/* Confirm bubble: agent-mode approval prompt. Reuses the .bubble look; the
-   command shows in a monospace block above the Approve / Deny buttons. */
 .bubble.confirm {
   -webkit-app-region: no-drag;
 }
@@ -151,8 +135,6 @@ body {
 }
 #confirm-no:hover { background: #e2e2e2; }
 
-/* Thought bubble — muted, cloud-like, for the model's reasoning. The two
-   trailing circles form the classic "thought" tail pointing at the answer. */
 .thought {
   position: relative;
   -webkit-app-region: no-drag;
@@ -200,7 +182,6 @@ body {
   word-break: break-word;
 }
 
-/* Collapsed: fold a long reasoning trace down to a single teaser line. */
 .thought.collapsed #thought-text {
   max-height: 1.4em;
   overflow: hidden;
@@ -212,7 +193,6 @@ body {
   display: none;
 }
 
-/* Chat input + mic below the companion — squared-off, greyscale. */
 #input-row {
   -webkit-app-region: no-drag;
   display: flex;
@@ -265,7 +245,6 @@ body {
   border-color: #999;
 }
 
-/* Settings (gear): slightly dimmed until hovered, and a gentle spin on hover. */
 #settings-btn {
   color: #cdc7e0;
   opacity: 0.7;
@@ -273,14 +252,12 @@ body {
 }
 #settings-btn:hover { opacity: 1; transform: rotate(45deg); }
 
-/* Agent toggle: dimmed when off, lit purple when on. */
 #agent-toggle {
   opacity: 0.45;
   filter: grayscale(1);
   transition: opacity 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* Lit when not in plain chat mode; colour distinguishes plan vs agent. */
 #agent-toggle.on {
   opacity: 1;
   filter: none;
@@ -288,7 +265,6 @@ body {
   box-shadow: 0 0 0 2px rgba(155, 123, 255, 0.35);
 }
 
-/* Plan mode: amber (read-only, "thinking" rather than "acting"). */
 #agent-toggle[data-mode='plan'].on {
   border-color: #e0a85b;
   box-shadow: 0 0 0 2px rgba(224, 168, 91, 0.35);

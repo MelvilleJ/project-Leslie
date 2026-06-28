@@ -1,11 +1,6 @@
 'use strict';
 
-// Agent orchestrator — the round loop that ties the layers together.
-// Equivalent to Odysseus's stream_agent_loop (src/agent_loop.py), scaled to
-// LESLIE: per round it selects tools (RAG), advertises only those (filtered by
-// policy), streams a turn, resolves native-or-text tool calls, runs the
 // reliability guards, gates + executes tools, wraps their output as untrusted
-// data, and feeds results back — until a final answer.
 
 const config = require('../config');
 const tools = require('../tools');
@@ -15,7 +10,6 @@ const { selectTools } = require('./toolIndex');
 const { buildPolicy, wrapUntrusted } = require('./toolPolicy');
 const { createGuards, emptyFallback } = require('./loopGuards');
 
-// Show the tool call in the thought bubble so its use is visible.
 function announceTool(onEvent, name, args) {
   let detail;
   if (name === 'web_search' || name === 'deep_search' || name === 'open_search') detail = `"${args.query ?? ''}"`;
@@ -29,9 +23,6 @@ function announceTool(onEvent, name, args) {
   onEvent({ type: 'thinking', text: `\n🔧 ${name}(${detail})\n` });
 }
 
-// Append a round's assistant text + tool results back into the message history.
-// Native path uses assistant.tool_calls + tool-role replies (keyed by id). The
-// text-fallback path has no tool_call ids to satisfy, so results go back as a
 // single user message (already wrapped as untrusted by the caller).
 function appendResults(messages, turn, usedNative, executed) {
   if (usedNative) {
@@ -65,19 +56,16 @@ async function runConversation(messages, onEvent, ctx, userText) {
   let summary = '';
   let details = '';
 
-  const metaList = tools.list(); // [{ name, description, readOnly }]
+  const metaList = tools.list();
   const metaByName = new Map(metaList.map((m) => [m.name, m]));
   const allNames = metaList.map((m) => m.name);
   const policy = buildPolicy(metaByName);
   const guards = createGuards();
 
-  // Plan mode: pin the directive at the very top so it dominates the prompt.
   if (policy.planMode) {
     messages.unshift({ role: 'system', content: policy.directive });
   }
 
-  // Tool RAG: choose the relevant subset once from the user's request, then
-  // narrow to what policy allows this session.
   let selectedNames = allNames;
   if (config.toolsEnabled) {
     try {
@@ -85,14 +73,8 @@ async function runConversation(messages, onEvent, ctx, userText) {
     } catch {
       selectedNames = allNames;
     }
-    // Effectful tools (run_command, install_software, open_app) are an explicit
-    // opt-in: when agent mode is on they are the whole point, so RAG must never
-    // silently drop them — otherwise "agent mode doesn't run commands". They're
-    // always offered; plan mode strips them again via filterNames below.
     const effectful = metaList.filter((m) => !m.readOnly).map((m) => m.name);
     selectedNames = Array.from(new Set([...selectedNames, ...effectful]));
-    // Learning mode: never let tool-RAG drop `remember` — the model needs it
-    // available whenever the user happens to state a lasting preference.
     if (config.learningMode && metaByName.has('remember')) selectedNames.push('remember');
     selectedNames = policy.filterNames(selectedNames);
   }
@@ -108,14 +90,11 @@ async function runConversation(messages, onEvent, ctx, userText) {
     const { calls, usedNative } = resolveToolCalls(turn, allNames);
     const hadAnswerText = Boolean((turn.summary || turn.details || '').trim());
 
-    // Force-answer round: we told the model to stop calling tools. Discard any
-    // it emitted anyway and finish on whatever text it produced.
     if (forceAnswer) {
       return { summary: summary || emptyFallback(), details };
     }
 
     if (!config.toolsEnabled || !calls.length) {
-      // No tool calls. Catch "let me check…" that never acted, once.
       const nudge = guards.intentNudge(turn.summary || turn.details);
       if (nudge && step < config.maxToolCalls) {
         messages.push({ role: 'assistant', content: turn.rawContent || turn.summary || '' });
@@ -125,7 +104,6 @@ async function runConversation(messages, onEvent, ctx, userText) {
       return { summary, details };
     }
 
-    // Loop-breaker / runaway: if circling, force one tool-free converging round.
     const verdict = guards.recordToolRound(calls, hadAnswerText);
     if (verdict.forceAnswer) {
       forceAnswer = true;
@@ -146,7 +124,6 @@ async function runConversation(messages, onEvent, ctx, userText) {
       try {
         args = JSON.parse(call.arguments || '{}');
       } catch {
-        // leave args empty; the tool reports a clear error
       }
       announceTool(onEvent, call.name, args);
 

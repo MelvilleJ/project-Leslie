@@ -1,17 +1,8 @@
 'use strict';
 
-// Shared plumbing for the agent-mode tools (run_command, install_software):
-//   - isAllowed : does a command auto-run, or must the user approve it?
-//   - gate      : enforce that decision via ctx.confirm (the bubble prompt)
-//   - execShell : actually run the command, capturing output safely
-//
-// Everything here runs in the main process, so it has full child_process access.
-
 const { exec } = require('node:child_process');
 const config = require('../../config');
 
-// Catastrophic patterns that ALWAYS require confirmation, even if they happen to
-// match an allowlist prefix. Heuristic, case-insensitive — a backstop, not a
 // security boundary (the real guard is that the user sees and approves commands).
 const DENY_PATTERNS = [
   /\bformat\b/i,
@@ -74,8 +65,6 @@ function execShell(command) {
         if (output.length > config.agentMaxOutput) {
           output = `${output.slice(0, config.agentMaxOutput)}\n…(truncated)`;
         }
-        // err.code is the process exit code for normal failures; err.killed is
-        // set when the timeout fired.
         let exitCode = 0;
         if (err) exitCode = typeof err.code === 'number' ? err.code : 1;
         if (err && err.killed) output = `(timed out after ${config.agentTimeoutMs}ms)\n${output}`;

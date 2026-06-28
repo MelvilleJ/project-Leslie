@@ -1,16 +1,5 @@
 'use strict';
 
-// Conversation history — durable chat transcripts across sessions (the "past
-// conversations" the settings window lists). A single JSON file in Electron's
-// userData dir, modelled on settings.js / memory.js: in-memory cache +
-// best-effort I/O (any failure falls back to memory-only rather than throwing).
-//
-// The agent keeps a short rolling `history` window for context; this store is
-// the full, permanent log. Each finished exchange (one user turn + the
-// assistant's reply) is appended to the *current* conversation. `startNew()`
-// rolls over to a fresh one (e.g. on /reset); `resume()` reloads an old one so
-// follow-ups continue it.
-
 const fs = require('node:fs');
 const path = require('node:path');
 const { app } = require('electron');
@@ -43,7 +32,6 @@ function persist() {
   try {
     fs.writeFileSync(file(), JSON.stringify(cache, null, 2));
   } catch {
-    // Non-fatal: the value still applies in-memory for this session.
   }
 }
 
@@ -51,7 +39,6 @@ function newId() {
   return `conv${Date.now()}_${++seq}`;
 }
 
-// A readable title from the first user message (first line, trimmed to ~60 chars).
 function titleFrom(text) {
   const first = String(text || '').trim().split(/\r?\n/)[0].trim();
   if (!first) return 'New conversation';
@@ -62,7 +49,6 @@ function findById(id) {
   return load().conversations.find((c) => c.id === id) || null;
 }
 
-// The conversation new turns are appended to, creating one on first use.
 function ensureCurrent() {
   const data = load();
   let conv = data.currentId ? findById(data.currentId) : null;
@@ -93,8 +79,6 @@ function appendExchange(userText, assistantText) {
 /** Roll over to a fresh conversation (the next exchange starts it). */
 function startNew() {
   const data = load();
-  // Drop a current conversation that never received a turn, so /reset spam
-  // doesn't litter the list with empties.
   const cur = data.currentId ? findById(data.currentId) : null;
   if (cur && !cur.messages.length) {
     data.conversations = data.conversations.filter((c) => c.id !== cur.id);
