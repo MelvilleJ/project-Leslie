@@ -156,10 +156,13 @@ src/
     detail.html / detail.js / detail.css     The detail window (text + <webview>)
     voice.html        The hidden voice window (loads voice.bundle.js — generated)
 scripts/
-  build-voice.js      esbuild bundle of the voice pipeline + ORT wasm copy
+  build-voice.js         esbuild bundle of the voice pipeline + ORT wasm copy
+  build-spritesheet.py   Upscale an animation sheet with Real-ESRGAN (see Sprites)
 assets/
-  spritesheet.png     Character frames (76×179 each, 25 frames)
-  spritesheet.css     Per-frame background-position classes
+  animations/<name>/     Per-animation spritesheet.png + spritesheet.css
+                         (idle, thinking, tools); .src.png/.src.json are originals
+tools/
+  realesrgan/            Real-ESRGAN ncnn binary (gitignored; download separately)
 ```
 
 ## Architecture notes
@@ -179,9 +182,7 @@ assets/
 
 ## Next steps
 
-- [ ] Distinct sprite animations per state (idle, thinking, talking).
+- [ ] More sprite animations per state (talking; idle + thinking done).
 - [ ] Persist conversation history across restarts.
 - [ ] Dedicated tray icon asset.
 - [ ] Packaging (electron-builder / electron-forge).
-#   p r o j e c t - L e s l i e  
- 
