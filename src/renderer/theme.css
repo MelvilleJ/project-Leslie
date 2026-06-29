@@ -1,0 +1,16 @@
+/* Central theme tokens — the single source of truth for LESLIE's palette,
+   linked first by every window (companion, details, settings).
+
+   --accent is the user-chosen colour: the picker writes it through the main
+   process, which persists it and broadcasts to all windows; each renderer then
+   sets it inline on :root (that inline value overrides the default below). The
+   surface tokens are static dark-neutrals shared by the framed windows. */
+:root {
+  --accent: #9b7bff;
+  --bg: #161619;
+  --bar: #1d1d21;
+  --panel: rgba(255, 255, 255, 0.035);
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #e7e7ea;
+  --text-dim: #b4b4bc;
+}

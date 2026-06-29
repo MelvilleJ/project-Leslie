@@ -47,5 +47,31 @@ contextBridge.exposeInMainWorld('settingsApi', {
   clearMemories: () => ipcRenderer.invoke('memory:clear'),
 
   /** One live CPU/GPU/RAM/app sample. Poll on an interval from the renderer. */
-  sampleSystem: () => ipcRenderer.invoke('sys:sample')
+  sampleSystem: () => ipcRenderer.invoke('sys:sample'),
+
+  // --- Theme accent ---------------------------------------------------------
+  /** Current accent colour (hex). @returns {Promise<string>} */
+  getAccent: () => ipcRenderer.invoke('theme:get'),
+  /** Set the accent colour; persists and syncs every window. @returns {Promise<string>} */
+  setAccent: (color) => ipcRenderer.invoke('theme:set', color),
+  /** Subscribe to accent changes from any window. */
+  onTheme: (cb) => ipcRenderer.on('theme:changed', (_e, color) => cb(color)),
+
+  // --- Animations -----------------------------------------------------------
+  /** Library + bindings: { clips, bindings, states }. */
+  getAnimations: () => ipcRenderer.invoke('anim:config'),
+  /** Open file dialogs to import a spritesheet (PNG + optional .css grid). */
+  importAnimation: () => ipcRenderer.invoke('anim:import'),
+  /** Patch an uploaded clip's name/grid/speed. */
+  updateClip: (id, patch) => ipcRenderer.invoke('anim:update', { id, patch }),
+  /** Delete an uploaded clip. */
+  deleteAnimation: (id) => ipcRenderer.invoke('anim:delete', id),
+  /** Bind a state to clip id(s). */
+  setBinding: (state, ids) => ipcRenderer.invoke('anim:set-binding', { state, ids }),
+  /** Subscribe to live animation-config changes. */
+  onAnimationsChanged: (cb) => {
+    const l = (_e, cfg) => cb(cfg || {});
+    ipcRenderer.on('animations:changed', l);
+    return () => ipcRenderer.removeListener('animations:changed', l);
+  }
 });

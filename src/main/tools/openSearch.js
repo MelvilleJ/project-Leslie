@@ -6,8 +6,8 @@ module.exports = {
   name: 'open_search',
   readOnly: true,
   description:
-    "Open web search results in LESLIE's window for the user to browse. Use when the " +
-    'user asks to look something up, search for, or find information they want to see ' +
+    "Open web search results in the user's default browser for them to browse. Use when " +
+    'the user asks to look something up, search for, or find information they want to see ' +
     'themselves (as opposed to wanting a direct answer).',
   parameters: {
     type: 'object',

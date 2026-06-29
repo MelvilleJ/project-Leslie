@@ -1,3 +1,5 @@
+/* Theme accent (--accent) comes from the shared theme.css, linked first, and is
+   synced live from the details/settings picker via the main process. */
 * {
   margin: 0;
   padding: 0;
@@ -234,6 +236,7 @@ body {
   background: rgba(38, 38, 40, 0.92);
   border: 1px solid #555;
   border-radius: 4px;
+  color: #cdc7e0;
   font-size: 0.85rem;
   line-height: 1;
   cursor: pointer;
@@ -250,19 +253,16 @@ body {
   opacity: 0.7;
   transition: opacity 0.15s ease, border-color 0.15s ease, transform 0.4s ease;
 }
-#settings-btn:hover { opacity: 1; transform: rotate(45deg); }
 
 #agent-toggle {
-  opacity: 0.45;
   filter: grayscale(1);
   transition: opacity 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 #agent-toggle.on {
-  opacity: 1;
   filter: none;
-  border-color: #9b7bff;
-  box-shadow: 0 0 0 2px rgba(155, 123, 255, 0.35);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 #agent-toggle[data-mode='plan'].on {

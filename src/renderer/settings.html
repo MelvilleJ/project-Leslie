@@ -4,8 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+        content="default-src 'none'; img-src 'self' leslie-sprite:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
   <title>LESLIE — Settings</title>
+  <link rel="stylesheet" href="theme.css" />
   <link rel="stylesheet" href="settings.css" />
 </head>
 <body>
@@ -26,6 +27,8 @@
       <button class="nav-item" data-panel="generation" type="button">🎚 Generation</button>
       <button class="nav-item" data-panel="behaviour" type="button">🧠 Behaviour</button>
       <button class="nav-item" data-panel="voice" type="button">🎤 Voice</button>
+      <button class="nav-item" data-panel="animations" type="button">🎬 Animations</button>
+      <button class="nav-item" data-panel="appearance" type="button">🎨 Appearance</button>
       <button class="nav-item" data-panel="memory" type="button">💾 Memory</button>
       <button class="nav-item" data-panel="about" type="button">ℹ️ About</button>
     </nav>
@@ -79,6 +82,40 @@
       <section class="panel" data-panel="voice">
         <div class="panel-head"><h2>Voice</h2></div>
         <div id="form-voice" class="form"></div>
+      </section>
+
+      <section class="panel" data-panel="animations">
+        <div class="panel-head">
+          <h2>Animations</h2>
+          <div class="panel-actions">
+            <button id="anim-import" class="btn" type="button">＋ Add spritesheet</button>
+          </div>
+        </div>
+        <p class="muted small" style="margin-bottom:14px">
+          Upload a spritesheet PNG (and its matching <code>spritesheet.css</code> to auto-fill the
+          grid), then bind clips to character states below. Idle accepts several clips and rotates
+          between them.
+        </p>
+        <h3 class="subhead">Clip library</h3>
+        <div id="anim-library" class="cards anim-cards"></div>
+        <h3 class="subhead">State bindings</h3>
+        <div id="anim-bindings" class="form"></div>
+      </section>
+
+      <section class="panel" data-panel="appearance">
+        <div class="panel-head"><h2>Appearance</h2></div>
+        <div class="form">
+          <div class="field">
+            <div class="field-label">
+              <span class="name">Theme colour</span>
+              <span class="help">Accent used across LESLIE. Changes apply live to every window and persist.</span>
+            </div>
+            <div class="field-control">
+              <input type="color" id="accent" value="#9b7bff" />
+              <button id="accent-reset" class="btn small" type="button">Reset</button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="panel" data-panel="memory">

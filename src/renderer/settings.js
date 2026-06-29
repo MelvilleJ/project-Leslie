@@ -37,6 +37,8 @@ function showPanel(name) {
   else stopMonitor();
   if (name === 'conversations') loadConversations();
   if (name === 'memory') loadMemories();
+  if (name === 'animations') loadAnimations();
+  else clearPreviewTimers(); // stop sprite preview loops when leaving the panel
 }
 navButtons.forEach((b) => b.addEventListener('click', () => showPanel(b.dataset.panel)));
 
@@ -123,6 +125,32 @@ function renderField(field, value) {
 
 api.onConfigChanged?.(({ key }) => {
   if (key === 'learningMode') buildAbout();
+});
+
+// --- Theme accent ----------------------------------------------------------
+// The picker writes through the main process, which persists and broadcasts the
+// colour to every window; we apply it to --accent so this window re-themes too.
+const DEFAULT_ACCENT = '#9b7bff';
+const accentInput = document.getElementById('accent');
+
+function applyAccent(color) {
+  if (!color) return;
+  document.documentElement.style.setProperty('--accent', color);
+  if (accentInput.value !== color) accentInput.value = color;
+}
+
+api.getAccent().then(applyAccent);
+api.onTheme(applyAccent);
+
+accentInput.addEventListener('input', () => applyAccent(accentInput.value)); // live preview
+accentInput.addEventListener('change', () => {
+  api.setAccent(accentInput.value);
+  toast('Theme colour saved');
+});
+document.getElementById('accent-reset').addEventListener('click', () => {
+  applyAccent(DEFAULT_ACCENT);
+  api.setAccent(DEFAULT_ACCENT);
+  toast('Theme colour reset');
 });
 
 const connStatus = document.getElementById('conn-status');
@@ -380,6 +408,177 @@ async function buildAbout() {
     row('Tip', 'Changes here apply live and persist across restarts (layered over .env).')
   );
 }
+
+// --- Animations -------------------------------------------------------------
+const animLibraryEl = document.getElementById('anim-library');
+const animBindingsEl = document.getElementById('anim-bindings');
+
+// Friendly labels + display order for the bindable states.
+const STATE_LABEL = {
+  idle: 'Idle (rotates)', thinking: 'Thinking', longThink: 'Long think',
+  toolCall: 'Tool call', talking: 'Talking', listening: 'Listening', moving: 'On move'
+};
+const STATE_ORDER = ['idle', 'thinking', 'longThink', 'toolCall', 'talking', 'listening', 'moving'];
+
+function clipSheetUrl(clip) {
+  if (!clip) return '';
+  return clip.builtin
+    ? `../../assets/animations/${clip.sheet}/spritesheet.png`
+    : `leslie-sprite://clips/${clip.file}`;
+}
+
+// Each preview runs its own frame loop; track timers so we can stop them on
+// reload / when leaving the panel.
+let previewTimers = [];
+function clearPreviewTimers() {
+  previewTimers.forEach((t) => clearInterval(t));
+  previewTimers = [];
+}
+
+function makePreview(clip, boxH = 92) {
+  const scale = Math.min(1, boxH / clip.frameH);
+  const inner = el('div', { class: 'anim-frame' });
+  inner.style.width = `${clip.frameW}px`;
+  inner.style.height = `${clip.frameH}px`;
+  inner.style.backgroundImage = `url('${clipSheetUrl(clip)}')`;
+  inner.style.transform = `scale(${scale})`;
+  let f = 0;
+  const draw = () => {
+    const col = f % clip.cols;
+    const row = Math.floor(f / clip.cols);
+    inner.style.backgroundPosition = `-${col * clip.frameW}px -${row * clip.frameH}px`;
+    f = (f + 1) % Math.max(1, clip.frames);
+  };
+  draw();
+  previewTimers.push(setInterval(draw, clip.frameMs || 140));
+  const wrap = el('div', { class: 'anim-preview' }, inner);
+  wrap.style.width = `${Math.round(clip.frameW * scale)}px`;
+  wrap.style.height = `${boxH}px`;
+  return wrap;
+}
+
+function gridInput(clip, key, label) {
+  const input = el('input', { type: 'number', min: 1, title: label, 'aria-label': label });
+  input.value = clip[key];
+  input.addEventListener('change', async () => {
+    const res = await api.updateClip(clip.id, { [key]: Number(input.value) });
+    if (!res.ok) toast('Update failed', true);
+  });
+  return el('label', { class: 'grid-cell' }, el('span', { text: label }), input);
+}
+
+function renderClipCard(clip) {
+  const card = el('div', { class: 'anim-card' });
+  card.append(makePreview(clip));
+
+  const body = el('div', { class: 'anim-card-body' });
+  if (clip.builtin) {
+    body.append(
+      el('div', { class: 'anim-name', text: clip.name }),
+      el('div', { class: 'muted small', text: `${clip.frameW}×${clip.frameH} · ${clip.frames} frames · ${clip.cols} cols · ${clip.frameMs}ms` }),
+      el('div', { class: 'muted small', text: 'Built-in (read-only)' })
+    );
+  } else {
+    const name = el('input', { type: 'text', value: clip.name, 'aria-label': 'Clip name' });
+    name.addEventListener('change', () => api.updateClip(clip.id, { name: name.value }));
+
+    const grid = el('div', { class: 'grid-row' },
+      gridInput(clip, 'frameW', 'W'), gridInput(clip, 'frameH', 'H'),
+      gridInput(clip, 'cols', 'Cols'), gridInput(clip, 'frames', 'Frames')
+    );
+
+    const speed = el('input', { type: 'range', min: 40, max: 400, step: 10 });
+    speed.value = clip.frameMs;
+    const speedVal = el('span', { class: 'range-val', text: `${clip.frameMs}ms` });
+    speed.addEventListener('input', () => (speedVal.textContent = `${speed.value}ms`));
+    speed.addEventListener('change', () => api.updateClip(clip.id, { frameMs: Number(speed.value) }));
+
+    const del = el('button', { class: 'btn small danger', text: 'Delete' });
+    del.addEventListener('click', async () => {
+      await api.deleteAnimation(clip.id);
+      toast('Clip deleted');
+    });
+
+    body.append(
+      name,
+      grid,
+      el('div', { class: 'range-wrap' }, el('span', { class: 'muted small', text: 'Speed' }), speed, speedVal),
+      el('div', { class: 'anim-card-actions' }, del)
+    );
+  }
+  card.append(body);
+  return card;
+}
+
+function renderBindings(cfg) {
+  animBindingsEl.innerHTML = '';
+  const clips = cfg.clips || [];
+  const bindings = cfg.bindings || {};
+
+  for (const state of STATE_ORDER) {
+    const control = el('div', { class: 'field-control bind-control' });
+    const bound = bindings[state] || [];
+
+    if (state === 'idle') {
+      // Multi-select: each checked clip joins the idle rotation.
+      for (const clip of clips) {
+        const cb = el('input', { type: 'checkbox' });
+        cb.checked = bound.includes(clip.id);
+        cb.addEventListener('change', async () => {
+          const ids = [...animBindingsEl.querySelectorAll(`[data-state="idle"] input:checked`)]
+            .map((i) => i.dataset.clip);
+          await api.setBinding('idle', ids);
+        });
+        cb.dataset.clip = clip.id;
+        control.append(el('label', { class: 'chip' }, cb, el('span', { text: clip.name })));
+      }
+      control.dataset.state = 'idle';
+    } else {
+      // Single-select dropdown (None + every clip).
+      const sel = el('select');
+      sel.append(el('option', { value: '', text: '— None —' }));
+      for (const clip of clips) sel.append(el('option', { value: clip.id, text: clip.name }));
+      sel.value = bound[0] || '';
+      sel.addEventListener('change', () => api.setBinding(state, sel.value ? [sel.value] : []));
+      control.append(sel);
+    }
+
+    animBindingsEl.append(
+      el('div', { class: 'field' },
+        el('div', { class: 'field-label' }, el('span', { class: 'name', text: STATE_LABEL[state] })),
+        control
+      )
+    );
+  }
+}
+
+function renderAnimations(cfg) {
+  clearPreviewTimers();
+  animLibraryEl.innerHTML = '';
+  for (const clip of cfg.clips || []) animLibraryEl.append(renderClipCard(clip));
+  renderBindings(cfg);
+}
+
+async function loadAnimations() {
+  try {
+    renderAnimations(await api.getAnimations());
+  } catch {
+    toast('Could not load animations', true);
+  }
+}
+
+document.getElementById('anim-import').addEventListener('click', async () => {
+  const res = await api.importAnimation();
+  if (res && res.cancelled) return;
+  if (res && res.ok) toast(`Added "${res.clip.name}" — bind it below`);
+  else toast((res && res.error) || 'Import failed', true);
+  // The broadcast also refreshes us, but reload now for immediacy.
+  loadAnimations();
+});
+
+api.onAnimationsChanged((cfg) => {
+  if (activePanel === 'animations') renderAnimations(cfg);
+});
 
 buildForms();
 buildAbout();

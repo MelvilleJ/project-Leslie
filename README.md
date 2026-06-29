@@ -183,3 +183,5 @@ assets/
 - [ ] Persist conversation history across restarts.
 - [ ] Dedicated tray icon asset.
 - [ ] Packaging (electron-builder / electron-forge).
+#   p r o j e c t - L e s l i e  
+ 

@@ -7,12 +7,16 @@
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
   <title>LESLIE — Details</title>
+  <link rel="stylesheet" href="theme.css" />
   <link rel="stylesheet" href="detail.css" />
 </head>
 <body>
   <header id="bar">
     <span id="title">Detailed response</span>
-    <button id="back" class="hidden" title="Back to the answer">✕ Close page</button>
+    <div id="bar-actions">
+      <input type="color" id="accent" value="#9b7bff" title="Theme colour" />
+      <button id="back" class="hidden" title="Back to the answer">← Back</button>
+    </div>
   </header>
 
   <main id="content"></main>

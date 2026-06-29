@@ -5,8 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- Lock down what the renderer is allowed to load. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+        content="default-src 'none'; img-src 'self' leslie-sprite:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src https://cdnjs.cloudflare.com; script-src 'self';" />
   <title>LESLIE</title>
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+        integrity="sha384-PPIZEGYM1v8zp5Py7UjFb79S58UeqCL9pYVnVPURKEqvioPROaVAJKKLzvH2rDnI"
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="stylesheet" href="theme.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -32,9 +37,9 @@
     <div id="input-row">
       <input id="input" type="text" autocomplete="off" spellcheck="false"
              placeholder="Say something… (/help)" />
-      <button id="agent-toggle" title="Mode: click to switch (Chat → Plan → Agent)">💬</button>
-      <button id="mic" title="Dictate (push to talk)">🎤</button>
-      <button id="settings-btn" title="Settings &amp; past conversations">⚙</button>
+      <button id="agent-toggle" title="Mode: click to switch (Chat → Plan → Agent)"><i class="fa-solid fa-comment" aria-hidden="true"></i></button>
+      <button id="mic" title="Dictate (push to talk)"><i class="fa-solid fa-microphone" aria-hidden="true"></i></button>
+      <button id="settings-btn" title="Settings &amp; past conversations"><i class="fa-solid fa-gear" aria-hidden="true"></i></button>
     </div>
   </div>
 

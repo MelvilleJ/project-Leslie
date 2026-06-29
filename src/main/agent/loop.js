@@ -21,6 +21,9 @@ function announceTool(onEvent, name, args) {
   else if (name === 'remember') detail = `"${args.text ?? ''}"`;
   else detail = JSON.stringify(args);
   onEvent({ type: 'thinking', text: `\n🔧 ${name}(${detail})\n` });
+  // Distinct signal (separate from reasoning text) so the UI can react to tool
+  // use — e.g. the companion playing a "tool-call" animation.
+  onEvent({ type: 'tool', name });
 }
 
 // single user message (already wrapped as untrusted by the caller).

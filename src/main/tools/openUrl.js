@@ -10,8 +10,8 @@ module.exports = {
   name: 'open_url',
   readOnly: true,
   description:
-    "Open a web page in LESLIE's window so the user can see it. Use when the user " +
-    'asks to open, show, visit, or go to a specific URL or website.',
+    "Open a web page in the user's default browser. Use when the user asks to open, " +
+    'show, visit, or go to a specific URL or website.',
   parameters: {
     type: 'object',
     properties: {

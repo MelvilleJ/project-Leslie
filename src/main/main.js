@@ -1,7 +1,9 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, session } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, session, shell, protocol, net, dialog } = require('electron');
 const path = require('node:path');
+const fs = require('node:fs');
+const { pathToFileURL } = require('node:url');
 const agent = require('./agent');
 const config = require('./config');
 const settings = require('./settings');
@@ -9,10 +11,19 @@ const memory = require('./memory');
 const configStore = require('./configStore');
 const conversations = require('./conversations');
 const sysmon = require('./sysmon');
+const animations = require('./animations');
+const { parseSpriteCss } = require('./spriteGrid');
 
 const isDev = process.argv.includes('--dev');
 
 const ROOT = path.join(__dirname, '..', '..');
+
+// Custom scheme that serves uploaded spritesheet PNGs from userData to the
+// renderers. Must be registered as privileged BEFORE the app is ready so it can
+// be used as an <img>/background-image source under a strict CSP.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'leslie-sprite', privileges: { standard: true, secure: true, supportFetchAPI: true } }
+]);
 
 /** @type {BrowserWindow | null} */
 let companionWindow = null;
@@ -27,6 +38,30 @@ let tray = null;
 
 const WINDOW_WIDTH = 260;
 const WINDOW_HEIGHT = 620;
+
+// --- Theme accent ----------------------------------------------------------
+// A single user-chosen accent colour drives the whole UI (--accent in CSS).
+// Persisted, and broadcast live to every window when changed from the picker.
+const DEFAULT_ACCENT = '#9b7bff';
+const isHex = (c) => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
+
+function getAccent() {
+  const v = settings.get('theme.accent', DEFAULT_ACCENT);
+  return isHex(v) ? v.toLowerCase() : DEFAULT_ACCENT;
+}
+
+function broadcastTheme(color) {
+  for (const w of [companionWindow, detailWindow, settingsWindow]) {
+    if (w && !w.isDestroyed()) w.webContents.send('theme:changed', color);
+  }
+}
+
+function setAccent(color) {
+  const v = isHex(color) ? color.toLowerCase() : DEFAULT_ACCENT;
+  settings.set('theme.accent', v);
+  broadcastTheme(v);
+  return v;
+}
 
 function createWindow() {
   const { workArea } = screen.getPrimaryDisplay();
@@ -62,9 +97,31 @@ function createWindow() {
     companionWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
+  // Tell the renderer the companion is being dragged so it can play a "moving"
+  // animation. The frameless window is dragged natively (-webkit-app-region:
+  // drag), so the renderer never sees the mouse — this 'move' event is the only
+  // hook. Coalesced to one message per frame.
+  let movePending = false;
+  companionWindow.on('move', () => {
+    if (movePending) return;
+    movePending = true;
+    setImmediate(() => {
+      movePending = false;
+      toCompanion('window:moved');
+    });
+  });
+
   companionWindow.on('closed', () => {
     companionWindow = null;
   });
+}
+
+// Push the current animation library + bindings to whichever windows care.
+function broadcastAnimations() {
+  const cfg = animations.getConfig();
+  for (const w of [companionWindow, settingsWindow]) {
+    if (w && !w.isDestroyed()) w.webContents.send('animations:changed', cfg);
+  }
 }
 
 function buildTrayMenu() {
@@ -161,11 +218,12 @@ function createDetailWindow() {
     height: 640,
     show: false,
     title: 'LESLIE — Details',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#161619',
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: '#16162b',
-      symbolColor: '#c6c6d6',
+      // Match the neutral #bar so the native caption area blends with it.
+      color: '#1d1d21',
+      symbolColor: '#c9c9cf',
       height: 44
     },
     webPreferences: {
@@ -214,11 +272,11 @@ function createSettingsWindow() {
     minHeight: 480,
     show: false,
     title: 'LESLIE — Settings',
-    backgroundColor: '#16162b',
+    backgroundColor: '#161619',
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: '#16162b',
-      symbolColor: '#c6c6d6',
+      color: '#1d1d21',
+      symbolColor: '#c9c9cf',
       height: 44
     },
     webPreferences: {
@@ -372,7 +430,15 @@ ipcMain.handle('agent:message', async (event, text) => {
           }
           break;
         case 'open-url':
-          showDetailWindow().webContents.send('detail:url', ev.url);
+          // Open web pages in the user's real default browser, not the in-app
+          // detail window (handles auth, extensions, sites that block embedding).
+          shell.openExternal(ev.url).catch((err) => {
+            console.warn('[open-url] openExternal failed:', err && err.message);
+          });
+          break;
+        case 'tool':
+          // A tool call started — let the companion flash a "tool-call" animation.
+          sender.send('agent:tool', ev.name);
           break;
         case 'confirm':
           sender.send('agent:confirm', { id: ev.id, message: ev.message });
@@ -403,6 +469,9 @@ ipcMain.handle('agent:confirm-response', (_event, { id, approved } = {}) => {
 
 ipcMain.handle('agent:get-mode', () => currentMode());
 ipcMain.handle('agent:set-mode', (_event, mode) => applyMode(mode));
+
+ipcMain.handle('theme:get', () => getAccent());
+ipcMain.handle('theme:set', (_event, color) => setAccent(color));
 
 ipcMain.handle('settings:schema', () => configStore.schema());
 ipcMain.handle('settings:get-all', () => ({
@@ -472,6 +541,65 @@ ipcMain.handle('memory:clear', () => {
 
 ipcMain.handle('sys:sample', () => sysmon.sample());
 
+// --- Animations ------------------------------------------------------------
+// Library + state bindings for the companion sprite. Mutations broadcast the
+// fresh config to the companion (and settings) so the change applies live.
+ipcMain.handle('anim:config', () => animations.getConfig());
+
+ipcMain.handle('anim:import', async () => {
+  const parent = settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow : undefined;
+  const png = await dialog.showOpenDialog(parent, {
+    title: 'Choose a spritesheet PNG',
+    filters: [{ name: 'PNG image', extensions: ['png'] }],
+    properties: ['openFile']
+  });
+  if (png.canceled || !png.filePaths[0]) return { cancelled: true };
+  const pngPath = png.filePaths[0];
+
+  // Optional: the matching spritesheet.css to auto-derive the grid. Cancel to
+  // enter the grid by hand afterwards.
+  const cssPick = await dialog.showOpenDialog(parent, {
+    title: 'Choose the matching spritesheet.css (Cancel to enter the grid manually)',
+    filters: [{ name: 'CSS', extensions: ['css'] }],
+    properties: ['openFile']
+  });
+  let grid = {};
+  if (!cssPick.canceled && cssPick.filePaths[0]) {
+    try {
+      grid = parseSpriteCss(fs.readFileSync(cssPick.filePaths[0], 'utf8'));
+    } catch {
+      grid = {};
+    }
+  }
+
+  try {
+    const name = path.basename(pngPath).replace(/\.png$/i, '');
+    const clip = animations.importClip({ name, pngPath, grid, frameMs: 140 });
+    broadcastAnimations();
+    return { ok: true, clip, config: animations.getConfig() };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('anim:update', (_event, { id, patch } = {}) => {
+  const clip = animations.updateClip(id, patch || {});
+  broadcastAnimations();
+  return { ok: Boolean(clip), clip, config: animations.getConfig() };
+});
+
+ipcMain.handle('anim:delete', (_event, id) => {
+  const ok = animations.removeClip(id);
+  broadcastAnimations();
+  return { ok, config: animations.getConfig() };
+});
+
+ipcMain.handle('anim:set-binding', (_event, { state, ids } = {}) => {
+  const bindings = animations.setBinding(state, ids);
+  broadcastAnimations();
+  return { ok: true, bindings, config: animations.getConfig() };
+});
+
 ipcMain.on('settings:open', () => showSettingsWindow());
 
 ipcMain.on('window:fit-height', (_event, desiredHeight) => {
@@ -510,6 +638,18 @@ ipcMain.on('voice:set-active', (_event, value) => controlVoice('set-active', !!v
 ipcMain.on('voice:listen-once', () => controlVoice('listen-once'));
 
 app.whenReady().then(() => {
+  // Serve uploaded spritesheets: leslie-sprite://clips/<id>.png -> userData file.
+  // basename guards against path traversal in the URL.
+  protocol.handle('leslie-sprite', (request) => {
+    try {
+      const url = new URL(request.url);
+      const file = path.join(animations.clipsDir(), path.basename(url.pathname));
+      return net.fetch(pathToFileURL(file).toString());
+    } catch {
+      return new Response('Not found', { status: 404 });
+    }
+  });
+
   const allowMedia = (permission) => permission === 'media' || permission === 'audioCapture';
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(allowMedia(permission));

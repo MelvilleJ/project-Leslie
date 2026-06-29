@@ -4,6 +4,23 @@ const title = document.getElementById('title');
 const back = document.getElementById('back');
 const content = document.getElementById('content');
 const web = document.getElementById('web');
+const accent = document.getElementById('accent');
+
+// --- Theme accent ----------------------------------------------------------
+// One CSS variable drives the whole UI. This window owns the picker, so it both
+// applies the colour locally and pushes it to the main process to sync + persist.
+function applyAccent(color) {
+  if (!color) return;
+  document.documentElement.style.setProperty('--accent', color);
+  if (accent.value !== color) accent.value = color;
+}
+
+window.detail.getAccent().then(applyAccent);
+window.detail.onTheme(applyAccent);
+
+// Live preview while dragging; commit (persist + broadcast) on release.
+accent.addEventListener('input', () => applyAccent(accent.value));
+accent.addEventListener('change', () => window.detail.setAccent(accent.value));
 
 function showText() {
   web.classList.add('hidden');

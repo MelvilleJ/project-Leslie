@@ -112,6 +112,33 @@ contextBridge.exposeInMainWorld('leslie', {
   /** Open the settings / application menu window. */
   openSettings: () => ipcRenderer.send('settings:open'),
 
+  /** Current accent colour (hex). @returns {Promise<string>} */
+  getAccent: () => ipcRenderer.invoke('theme:get'),
+  /** Subscribe to accent changes (e.g. picked in the details window). */
+  onTheme: (cb) => ipcRenderer.on('theme:changed', (_e, color) => cb(color)),
+
+  // --- Animations -----------------------------------------------------------
+  /** The animation library + state bindings. @returns {Promise<{clips,bindings,states}>} */
+  getAnimations: () => ipcRenderer.invoke('anim:config'),
+  /** Subscribe to live animation-config changes (edited in settings). */
+  onAnimations: (cb) => {
+    const l = (_e, cfg) => cb(cfg || {});
+    ipcRenderer.on('animations:changed', l);
+    return () => ipcRenderer.removeListener('animations:changed', l);
+  },
+  /** A tool call started: callback receives the tool name. */
+  onToolCall: (cb) => {
+    const l = (_e, name) => cb(name);
+    ipcRenderer.on('agent:tool', l);
+    return () => ipcRenderer.removeListener('agent:tool', l);
+  },
+  /** The companion window is being dragged. */
+  onWindowMoved: (cb) => {
+    const l = () => cb();
+    ipcRenderer.on('window:moved', l);
+    return () => ipcRenderer.removeListener('window:moved', l);
+  },
+
   /** Quit the whole app (tray included). */
   quit: () => ipcRenderer.send('app:quit'),
 

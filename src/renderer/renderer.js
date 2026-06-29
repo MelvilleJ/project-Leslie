@@ -15,45 +15,166 @@ const confirmNo = document.getElementById('confirm-no');
 const agentToggle = document.getElementById('agent-toggle');
 const settingsBtn = document.getElementById('settings-btn');
 
-const ANIMATIONS = {
-  idle: {
-    sheet: '../../assets/animations/idle/spritesheet.png',
-    frameW: 228, frameH: 537, cols: 4, frames: 25, frameMs: 140
-  },
-  thinking: {
-    sheet: '../../assets/animations/thinking/spritesheet.png',
-    frameW: 247, frameH: 537, cols: 4, frames: 12, frameMs: 140
-  }
+// --- Animation engine -------------------------------------------------------
+// A small state machine: the active character STATE (resolved by priority from
+// a set of flags) maps through user-configurable BINDINGS to a CLIP, which the
+// frame loop plays. The library + bindings come from the main process
+// (window.leslie.getAnimations) and update live on 'animations:changed'.
+
+// Built-in clips reference the sheets bundled in assets/; uploaded clips are
+// served from userData over the leslie-sprite:// protocol.
+function clipSheetUrl(clip) {
+  if (!clip) return '';
+  if (clip.builtin) return `../../assets/animations/${clip.sheet}/spritesheet.png`;
+  return `leslie-sprite://clips/${clip.file}`;
+}
+
+// State priority, highest first. `idle` is the implicit fallback (always last).
+// `talking` sits above `thinking` so a bound talking clip takes over while the
+// answer streams; when talking is UNBOUND it's transparent and the still-active
+// `thinking` shows through — so by default the thinking animation plays for the
+// whole turn (matching the original behaviour) until a talking clip is assigned.
+const STATE_PRIORITY = ['toolCall', 'longThink', 'talking', 'thinking', 'listening', 'moving', 'idle'];
+const flags = {
+  thinking: false, longThink: false, toolCall: false,
+  talking: false, listening: false, moving: false
 };
 
-let currentAnim = null;
+let clipsById = Object.create(null);
+let bindings = {};
+
+let currentClip = null;
 let frame = 0;
 let animTimer = null;
+let idleRotateTimer = null;
+let lastIdleId = null;
 
-function drawFrame(anim, n) {
-  const col = n % anim.cols;
-  const row = Math.floor(n / anim.cols);
-  companion.style.backgroundPosition = `-${col * anim.frameW}px -${row * anim.frameH}px`;
+function drawFrame(clip, n) {
+  const col = n % clip.cols;
+  const row = Math.floor(n / clip.cols);
+  companion.style.backgroundPosition = `-${col * clip.frameW}px -${row * clip.frameH}px`;
 }
 
-function playAnimation(name) {
-  const anim = ANIMATIONS[name];
-  if (!anim || anim === currentAnim) return;
-  currentAnim = anim;
+function playClip(clip) {
+  if (!clip || clip === currentClip) return;
+  currentClip = clip;
   frame = 0;
-  companion.style.backgroundImage = `url('${anim.sheet}')`;
+  companion.style.backgroundImage = `url('${clipSheetUrl(clip)}')`;
   companion.style.backgroundRepeat = 'no-repeat';
-  companion.style.width = `${anim.frameW}px`;
-  companion.style.height = `${anim.frameH}px`;
-  drawFrame(anim, 0);
+  companion.style.width = `${clip.frameW}px`;
+  companion.style.height = `${clip.frameH}px`;
+  drawFrame(clip, 0);
   if (animTimer) clearInterval(animTimer);
   animTimer = setInterval(() => {
-    frame = (frame + 1) % currentAnim.frames;
-    drawFrame(currentAnim, frame);
-  }, anim.frameMs);
+    frame = (frame + 1) % currentClip.frames;
+    drawFrame(currentClip, frame);
+  }, clip.frameMs || 140);
 }
 
-playAnimation('idle');
+// The highest-priority state that is both active AND actually has a clip bound.
+function activeState() {
+  for (const s of STATE_PRIORITY) {
+    if (s === 'idle') return 'idle';
+    if (flags[s] && (bindings[s] || []).length) return s;
+  }
+  return 'idle';
+}
+
+function clipForState(state) {
+  const ids = bindings[state] || [];
+  if (!ids.length) return null;
+  if (state === 'idle') {
+    const id = lastIdleId && ids.includes(lastIdleId) ? lastIdleId : ids[0];
+    return clipsById[id] || clipsById[ids[0]] || null;
+  }
+  return clipsById[ids[0]] || null;
+}
+
+// Idle variants rotate on a ~10s timer (only while idle and >1 variant exists).
+function manageIdleRotation(state) {
+  const multi = state === 'idle' && (bindings.idle || []).length > 1;
+  if (multi && !idleRotateTimer) {
+    idleRotateTimer = setInterval(() => {
+      if (activeState() !== 'idle') return;
+      const ids = bindings.idle || [];
+      const others = ids.filter((id) => id !== lastIdleId);
+      const pool = others.length ? others : ids;
+      lastIdleId = pool[Math.floor(Math.random() * pool.length)];
+      const clip = clipsById[lastIdleId];
+      if (clip) playClip(clip);
+    }, 10000);
+  } else if (!multi && idleRotateTimer) {
+    clearInterval(idleRotateTimer);
+    idleRotateTimer = null;
+  }
+}
+
+function resolveAnimation() {
+  const state = activeState();
+  manageIdleRotation(state);
+  const clip = clipForState(state) || clipForState('idle') || clipsById['builtin:idle'];
+  if (clip) playClip(clip);
+}
+
+function setFlag(name, value) {
+  if (flags[name] === value) return;
+  flags[name] = value;
+  resolveAnimation();
+}
+
+function applyAnimConfig(cfg) {
+  if (!cfg) return;
+  clipsById = Object.create(null);
+  for (const c of cfg.clips || []) clipsById[c.id] = c;
+  bindings = cfg.bindings || {};
+  if (!(bindings.idle || []).length && clipsById['builtin:idle']) bindings.idle = ['builtin:idle'];
+  currentClip = null; // force a replay even if the clip object identity changed
+  resolveAnimation();
+}
+
+// Seed with built-in defaults so the companion animates instantly, then pull the
+// real (possibly customised) config from the main process.
+applyAnimConfig({
+  clips: [
+    { id: 'builtin:idle', builtin: true, sheet: 'idle', frameW: 228, frameH: 537, cols: 4, frames: 25, frameMs: 140 },
+    { id: 'builtin:thinking', builtin: true, sheet: 'thinking', frameW: 247, frameH: 537, cols: 4, frames: 12, frameMs: 140 }
+  ],
+  bindings: { idle: ['builtin:idle'], thinking: ['builtin:thinking'] }
+});
+window.leslie.getAnimations().then(applyAnimConfig).catch(() => {});
+window.leslie.onAnimations(applyAnimConfig);
+
+// Transient-state drivers (tool call flashes; drag reverts shortly after motion
+// stops; long-think kicks in if a reply is slow).
+let toolFlashTimer = null;
+window.leslie.onToolCall(() => {
+  setFlag('toolCall', true);
+  if (toolFlashTimer) clearTimeout(toolFlashTimer);
+  toolFlashTimer = setTimeout(() => setFlag('toolCall', false), 1200);
+});
+
+let moveTimer = null;
+window.leslie.onWindowMoved(() => {
+  setFlag('moving', true);
+  if (moveTimer) clearTimeout(moveTimer);
+  moveTimer = setTimeout(() => setFlag('moving', false), 600);
+});
+
+let longThinkTimer = null;
+function startThinking() {
+  setFlag('talking', false);
+  setFlag('longThink', false);
+  setFlag('thinking', true);
+  if (longThinkTimer) clearTimeout(longThinkTimer);
+  longThinkTimer = setTimeout(() => setFlag('longThink', true), 6000);
+}
+function endTurn() {
+  if (longThinkTimer) clearTimeout(longThinkTimer);
+  longThinkTimer = null;
+  setFlag('thinking', false);
+  setFlag('longThink', false);
+  setFlag('talking', false);
+}
 
 const FIT_PAD = 14;
 let lastFitHeight = 0;
@@ -135,6 +256,12 @@ window.leslie.onAgentThink((delta) => {
 
 window.leslie.onAgentChunk((delta) => {
   if (!streaming) return;
+  // The answer has started: drop the long-think timer and enter "talking".
+  // `thinking` stays set (it's lower priority) so it still shows if talking is
+  // unbound; endTurn() clears both when the reply finishes.
+  if (longThinkTimer) { clearTimeout(longThinkTimer); longThinkTimer = null; }
+  setFlag('longThink', false);
+  setFlag('talking', true);
   if (bubble.classList.contains('thinking')) {
     bubble.classList.remove('thinking');
     bubbleText.textContent = '';
@@ -163,7 +290,7 @@ async function send(text) {
   if (!text || streaming) return;
 
   streaming = true;
-  playAnimation('thinking');
+  startThinking();
   thoughtText.textContent = '';
   thought.classList.add('hidden');
   thought.classList.remove('collapsed');
@@ -171,7 +298,7 @@ async function send(text) {
 
   const res = await window.leslie.sendMessage(text);
   streaming = false;
-  playAnimation('idle');
+  endTurn();
 
   if (res && res.error) {
     showBubble(`⚠ ${res.error}`, { autoHideMs: 12000 });
@@ -209,16 +336,16 @@ confirmNo.addEventListener('click', () => answerConfirm(false));
 
 const MODES = ['chat', 'plan', 'agent'];
 const MODE_META = {
-  chat: { icon: '💬', label: 'Chat', say: '💬 Chat mode — just conversation.' },
-  plan: { icon: '📋', label: 'Plan', say: "📋 Plan mode — I'll investigate read-only and propose a plan." },
-  agent: { icon: '🤖', label: 'Agent', say: '🤖 Agent mode — I can run commands.' }
+  chat: { icon: 'fa-comment', label: 'Chat', say: '💬 Chat mode — just conversation.' },
+  plan: { icon: 'fa-clipboard-list', label: 'Plan', say: "📋 Plan mode — I'll investigate read-only and propose a plan." },
+  agent: { icon: 'fa-robot', label: 'Agent', say: '🤖 Agent mode — I can run commands.' }
 };
 let mode = 'chat';
 
 function reflectMode(next) {
   mode = MODES.includes(next) ? next : 'chat';
   const meta = MODE_META[mode];
-  agentToggle.textContent = meta.icon;
+  agentToggle.innerHTML = `<i class="fa-solid ${meta.icon}" aria-hidden="true"></i>`;
   agentToggle.dataset.mode = mode;
   agentToggle.classList.toggle('on', mode !== 'chat');
   agentToggle.title = `Mode: ${meta.label} — click to switch (Chat → Plan → Agent)`;
@@ -360,14 +487,24 @@ window.leslie.onVoiceFinal(({ text, autoSend }) => {
 });
 
 window.leslie.onVoiceStatus(({ state, message }) => {
-  mic.classList.toggle('listening', state === 'listening' || state === 'transcribing');
+  const hearing = state === 'listening' || state === 'transcribing';
+  mic.classList.toggle('listening', hearing);
   mic.classList.toggle('off', state === 'off');
+  setFlag('listening', hearing);
   if (state === 'loading') showBubble('Loading speech model…', { autoHideMs: 0 });
   else if (state === 'error') showBubble(`⚠ voice: ${message || 'error'}`, { autoHideMs: 8000 });
 });
+
+// Theme accent: applied as a CSS variable; chosen from the details window and
+// synced here so the companion's accents follow the system theme.
+function applyAccent(color) {
+  if (color) document.documentElement.style.setProperty('--accent', color);
+}
+window.leslie.onTheme(applyAccent);
 
 window.addEventListener('DOMContentLoaded', () => {
   showBubble('Hi, I’m LESLIE — type below to chat.', { autoHideMs: 6000 });
   input.focus();
   window.leslie.getMode().then(reflectMode);
+  window.leslie.getAccent().then(applyAccent);
 });
