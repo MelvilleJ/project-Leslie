@@ -127,6 +127,10 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 .field:last-child { border-bottom: none; }
+.field.field-sub {
+  padding-left: 36px;
+  background: rgba(0, 0, 0, 0.14);
+}
 .field-label { display: flex; flex-direction: column; gap: 3px; }
 .field-label .name { font-size: 0.88rem; color: #ece9f6; }
 .field-label .help { font-size: 0.72rem; color: #9a9ab0; line-height: 1.4; }

@@ -1,14 +1,19 @@
 'use strict';
 
 const { gate, execShell } = require('./lib/agentShell');
+const config = require('../config');
 
 module.exports = {
   name: 'run_command',
-  description:
-    "Run a shell command on the user's computer (PowerShell). Use for system tasks the " +
-    'user asks for — creating folders, moving files, running programs, managing packages, ' +
-    'etc. Safe/known commands run immediately; anything else asks the user to approve first. ' +
-    'Always pass a clear explanation of what the command does.',
+  get description() {
+    const shell = config.osTarget === 'linux' ? 'bash' : 'PowerShell';
+    return (
+      `Run a shell command on the user's computer (${shell}). Use for system tasks the ` +
+      'user asks for — creating folders, moving files, running programs, managing packages, ' +
+      'etc. Safe/known commands run immediately; anything else asks the user to approve first. ' +
+      'Always pass a clear explanation of what the command does.'
+    );
+  },
   parameters: {
     type: 'object',
     properties: {

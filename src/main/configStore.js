@@ -22,6 +22,21 @@ const SCHEMA = [
   { key: 'historyLimit', type: 'number', group: 'Generation', label: 'History messages kept',
     min: 0, max: 200, step: 2, help: 'How many past messages stay in context.' },
 
+  { key: 'osTarget', type: 'select', group: 'Behaviour', label: 'Operating system',
+    options: [
+      { value: 'windows', label: 'Windows' },
+      { value: 'linux', label: 'Linux' }
+    ],
+    help: 'Which OS tools target. Affects the shell, package manager, and command syntax.' },
+  { key: 'linuxDistro', type: 'select', group: 'Behaviour', label: 'Linux distribution',
+    options: [
+      { value: 'debian', label: 'Debian / Ubuntu (apt)' },
+      { value: 'fedora', label: 'Fedora (dnf)' },
+      { value: 'arch', label: 'Arch Linux (pacman)' }
+    ],
+    dependsOn: { key: 'osTarget', value: 'linux' },
+    help: 'Selects the package manager used by the install_software tool.' },
+
   { key: 'toolsEnabled', type: 'boolean', group: 'Behaviour', label: 'Enable tools',
     help: 'Web search, deep search, open URL, etc. Needs a tool-capable model.' },
   { key: 'maxToolCalls', type: 'number', group: 'Behaviour', label: 'Max tool calls per message',
@@ -54,6 +69,11 @@ function coerce(field, value) {
     }
     case 'boolean':
       return Boolean(value);
+    case 'select': {
+      const opts = (field.options || []).map((o) => o.value);
+      const s = String(value ?? '');
+      return opts.length && !opts.includes(s) ? opts[0] : s;
+    }
     default:
       return String(value ?? '');
   }

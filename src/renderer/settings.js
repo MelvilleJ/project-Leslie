@@ -70,7 +70,43 @@ async function buildForms() {
   for (const field of schema) {
     const container = document.getElementById(GROUP_TO_CONTAINER[field.group]);
     if (!container) continue;
-    container.append(renderField(field, values[field.key]));
+    const fieldEl = renderField(field, values[field.key]);
+    if (field.dependsOn) fieldEl.classList.add('field-sub');
+    container.append(fieldEl);
+  }
+
+  // Set initial dependsOn visibility
+  for (const field of schema) {
+    if (!field.dependsOn) continue;
+    const container = document.getElementById(GROUP_TO_CONTAINER[field.group]);
+    if (!container) continue;
+    const fieldEl = container.querySelector(`[data-field-key="${field.key}"]`);
+    if (fieldEl && values[field.dependsOn.key] !== field.dependsOn.value) {
+      fieldEl.classList.add('hidden');
+    }
+  }
+
+  // Wire change listeners on controlling selects (once per controller)
+  const wired = new Set();
+  for (const field of schema) {
+    if (!field.dependsOn || wired.has(field.dependsOn.key)) continue;
+    wired.add(field.dependsOn.key);
+    const ctrlField = schema.find((f) => f.key === field.dependsOn.key);
+    if (!ctrlField) continue;
+    const ctrlContainer = document.getElementById(GROUP_TO_CONTAINER[ctrlField.group]);
+    if (!ctrlContainer) continue;
+    const ctrlEl = ctrlContainer.querySelector(`[data-field-key="${ctrlField.key}"] select`);
+    if (!ctrlEl) continue;
+    const ctrlKey = ctrlField.key;
+    ctrlEl.addEventListener('change', () => {
+      for (const dep of schema) {
+        if (!dep.dependsOn || dep.dependsOn.key !== ctrlKey) continue;
+        const depCont = document.getElementById(GROUP_TO_CONTAINER[dep.group]);
+        if (!depCont) continue;
+        const depEl = depCont.querySelector(`[data-field-key="${dep.key}"]`);
+        if (depEl) depEl.classList.toggle('hidden', ctrlEl.value !== dep.dependsOn.value);
+      }
+    });
   }
 }
 
@@ -93,6 +129,15 @@ function renderField(field, value) {
     input.checked = Boolean(value);
     input.addEventListener('change', () => save(field.key, input.checked, field.label));
     control.append(el('label', { class: 'switch' }, input, el('span', { class: 'slider' })));
+  } else if (field.type === 'select') {
+    const sel = el('select');
+    for (const opt of (field.options || [])) {
+      const o = el('option', { value: opt.value, text: opt.label });
+      if (opt.value === value) o.selected = true;
+      sel.append(o);
+    }
+    sel.addEventListener('change', () => save(field.key, sel.value, field.label));
+    control.append(sel);
   } else if (field.type === 'text') {
     const ta = el('textarea', {});
     ta.value = value ?? '';
@@ -120,7 +165,7 @@ function renderField(field, value) {
     control.dataset.key = field.key;
   }
 
-  return el('div', { class: 'field' }, label, control);
+  return el('div', { class: 'field', 'data-field-key': field.key }, label, control);
 }
 
 api.onConfigChanged?.(({ key }) => {

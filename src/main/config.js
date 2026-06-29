@@ -71,15 +71,15 @@ module.exports = {
   deepSearchChars: Number(env.LESLIE_DEEP_SEARCH_CHARS ?? 4000),
   deepSearchTimeoutMs: Number(env.LESLIE_DEEP_SEARCH_TIMEOUT_MS ?? 8000),
 
+  osTarget: env.LESLIE_OS_TARGET || (process.platform === 'linux' ? 'linux' : 'windows'),
+  linuxDistro: env.LESLIE_LINUX_DISTRO || 'debian',
+
   // DANGER: lets the model execute shell commands on this machine. OFF unless
   agentMode: env.LESLIE_AGENT_MODE === '1',
-  agentShell: env.LESLIE_AGENT_SHELL || 'powershell',
-  agentAllowlist: (env.LESLIE_AGENT_ALLOWLIST
-    ? env.LESLIE_AGENT_ALLOWLIST.split(',')
-    : ['winget install', 'winget search', 'winget upgrade', 'winget list', 'winget show']
-  )
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean),
+  agentShell: env.LESLIE_AGENT_SHELL || null,
+  agentAllowlist: env.LESLIE_AGENT_ALLOWLIST
+    ? env.LESLIE_AGENT_ALLOWLIST.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+    : null,
   agentTimeoutMs: Number(env.LESLIE_AGENT_TIMEOUT_MS ?? 120000),
   agentMaxOutput: Number(env.LESLIE_AGENT_MAX_OUTPUT ?? 4000),
 
