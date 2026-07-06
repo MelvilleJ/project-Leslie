@@ -13,6 +13,11 @@ const conversations = require('./conversations');
 const sysmon = require('./sysmon');
 const animations = require('./animations');
 const { parseSpriteCss } = require('./spriteGrid');
+const fsSuggest = require('./fsSuggest');
+const listDirectory = require('./tools/listDirectory');
+const readFile = require('./tools/readFile');
+const readDocument = require('./tools/readDocument');
+const { isDocument } = require('./tools/lib/docExtract');
 
 const isDev = process.argv.includes('--dev');
 
@@ -382,8 +387,50 @@ function firstSentence(text) {
   return (m ? m[0] : t).trim();
 }
 
-ipcMain.handle('agent:message', async (event, text) => {
+// Expand the user's "@" file/folder mentions into a context block the model can
+// read directly: files are read (capped) and folders are listed, reusing the
+// same OS-aware read-only tools the agent itself uses.
+async function buildMentionContext(mentions) {
+  if (!Array.isArray(mentions) || !mentions.length) return '';
+  const seen = new Set();
+  const parts = [];
+  for (const m of mentions.slice(0, 10)) {
+    const p = m && m.path;
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    try {
+      if (m.type === 'dir') {
+        const r = await listDirectory.run({ path: p });
+        if (r.error) parts.push(`Folder ${p}: (${r.error})`);
+        else {
+          const lines = (r.entries || [])
+            .map((e) => `${e.type === 'dir' ? '[dir] ' : ''}${e.name}`)
+            .join('\n');
+          parts.push(`Folder ${r.path} — ${r.count} item(s):\n${lines}`);
+        }
+      } else if (isDocument(p)) {
+        // Word/PDF/Excel/etc. — extract text instead of reading raw bytes.
+        const r = await readDocument.run({ path: p });
+        if (r.error) parts.push(`Document ${p}: (${r.error})`);
+        else parts.push(`Document ${r.path} (${r.kind}${r.truncated ? ', truncated' : ''}):\n${r.content}`);
+      } else {
+        const r = await readFile.run({ path: p });
+        if (r.error) parts.push(`File ${p}: (${r.error})`);
+        else parts.push(`File ${r.path}${r.truncated ? ' (truncated)' : ''}:\n${r.content}`);
+      }
+    } catch (err) {
+      parts.push(`${p}: (could not read — ${err && err.message ? err.message : err})`);
+    }
+  }
+  if (!parts.length) return '';
+  return `The user attached the following from their computer for you to view:\n\n${parts.join('\n\n---\n\n')}`;
+}
+
+ipcMain.handle('agent:message', async (event, payload) => {
   const sender = event.sender;
+  // Back-compat: payload may be a bare string or { text, mentions }.
+  const text = typeof payload === 'string' ? payload : (payload && payload.text) || '';
+  const mentions = (payload && payload.mentions) || [];
   let detailOpen = false;
   let detailPending = '';
 
@@ -400,6 +447,7 @@ ipcMain.handle('agent:message', async (event, text) => {
   };
 
   try {
+    const mentionContext = await buildMentionContext(mentions);
     const reply = await agent.sendMessage(text, (ev) => {
       if (sender.isDestroyed()) return;
       switch (ev.type) {
@@ -444,7 +492,7 @@ ipcMain.handle('agent:message', async (event, text) => {
           sender.send('agent:confirm', { id: ev.id, message: ev.message });
           break;
       }
-    });
+    }, mentionContext);
 
     if (detailOpen && detailWindow && !detailWindow.isDestroyed()) {
       detailWindow.webContents.send('detail:end');
@@ -540,6 +588,9 @@ ipcMain.handle('memory:clear', () => {
 });
 
 ipcMain.handle('sys:sample', () => sysmon.sample());
+
+// Path autocomplete for the companion's "@" file/folder picker.
+ipcMain.handle('fs:suggest', (_event, query) => fsSuggest.suggest(query));
 
 // --- Animations ------------------------------------------------------------
 // Library + state bindings for the companion sprite. Mutations broadcast the

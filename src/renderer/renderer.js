@@ -14,6 +14,7 @@ const confirmYes = document.getElementById('confirm-yes');
 const confirmNo = document.getElementById('confirm-no');
 const agentToggle = document.getElementById('agent-toggle');
 const settingsBtn = document.getElementById('settings-btn');
+const mentionMenu = document.getElementById('mention-menu');
 
 // --- Animation engine -------------------------------------------------------
 // A small state machine: the active character STATE (resolved by priority from
@@ -289,6 +290,11 @@ async function send(text) {
   text = text.trim();
   if (!text || streaming) return;
 
+  // Only keep "@" mentions whose path still appears in the message (the user may
+  // have deleted a token after picking it). Then clear for the next message.
+  const mentions = pendingMentions.filter((m) => text.includes(m.path));
+  pendingMentions = [];
+
   streaming = true;
   startThinking();
   thoughtText.textContent = '';
@@ -296,7 +302,7 @@ async function send(text) {
   thought.classList.remove('collapsed');
   showBubble('…', { thinking: true });
 
-  const res = await window.leslie.sendMessage(text);
+  const res = await window.leslie.sendMessage(text, mentions);
   streaming = false;
   endTurn();
 
@@ -421,14 +427,189 @@ function runCommand(raw) {
   else showBubble(`Unknown command: /${name}`, { autoHideMs: 5000 });
 }
 
+// --- "@" file / folder picker -----------------------------------------------
+// Claude Code style: type "@" to open an autocomplete of files and folders.
+// Enter navigates into a folder or attaches a file; Tab attaches the highlighted
+// item (file OR folder); Esc closes. Picked paths ride along with the next
+// message so the companion can view them (expanded into context in main.js).
+let pendingMentions = []; // [{ path, type }] attached for the next send
+let mentionStart = -1; // index of the active "@" in input.value, or -1
+let mentionItems = [];
+let mentionIndex = 0;
+let mentionSep = '/';
+let mentionReq = 0; // guards against out-of-order async suggestions
+
+function mentionActive() {
+  return mentionStart >= 0 && !mentionMenu.classList.contains('hidden');
+}
+
+function closeMention() {
+  mentionStart = -1;
+  mentionItems = [];
+  mentionMenu.classList.add('hidden');
+  mentionMenu.innerHTML = '';
+  scheduleFit();
+}
+
+function iconFor(type) {
+  return type === 'dir' ? '📁' : type === 'symlink' ? '🔗' : '📄';
+}
+
+function renderMention() {
+  mentionMenu.innerHTML = '';
+  if (!mentionItems.length) {
+    const empty = document.createElement('div');
+    empty.className = 'mention-empty';
+    empty.textContent = 'No matches';
+    mentionMenu.appendChild(empty);
+  } else {
+    mentionItems.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = 'mention-item' + (i === mentionIndex ? ' active' : '');
+      row.setAttribute('role', 'option');
+      const icon = document.createElement('span');
+      icon.className = 'mi-icon';
+      icon.textContent = iconFor(item.type);
+      const name = document.createElement('span');
+      name.className = 'mi-name';
+      name.textContent = item.name;
+      const ty = document.createElement('span');
+      ty.className = 'mi-type';
+      ty.textContent = item.type === 'dir' ? 'folder' : '';
+      row.append(icon, name, ty);
+      // mousedown (not click) so the input keeps focus/caret while we edit it.
+      row.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        chooseMention(item);
+      });
+      mentionMenu.appendChild(row);
+    });
+  }
+  mentionMenu.classList.remove('hidden');
+  scheduleFit();
+}
+
+function moveMention(delta) {
+  if (!mentionItems.length) return;
+  mentionIndex = (mentionIndex + delta + mentionItems.length) % mentionItems.length;
+  renderMention();
+  const active = mentionMenu.querySelector('.mention-item.active');
+  if (active) active.scrollIntoView({ block: 'nearest' });
+}
+
+async function refreshMention(query) {
+  const seq = ++mentionReq;
+  let res;
+  try {
+    res = await window.leslie.suggestPaths(query);
+  } catch {
+    res = { items: [], sep: mentionSep };
+  }
+  if (seq !== mentionReq || mentionStart < 0) return; // superseded or closed
+  mentionItems = (res && res.items) || [];
+  mentionSep = (res && res.sep) || mentionSep;
+  mentionIndex = 0;
+  renderMention();
+}
+
+function updateMention() {
+  if (mentionStart < 0) return;
+  const caret = input.selectionStart;
+  if (caret <= mentionStart || input.value[mentionStart] !== '@') {
+    closeMention();
+    return;
+  }
+  refreshMention(input.value.slice(mentionStart + 1, caret));
+}
+
+// Replace the active "@…query" span with `token`, placing the caret after it.
+function replaceMentionWith(token) {
+  const caret = input.selectionStart;
+  const before = input.value.slice(0, mentionStart);
+  const after = input.value.slice(caret);
+  input.value = before + token + after;
+  const pos = (before + token).length;
+  input.setSelectionRange(pos, pos);
+}
+
+function navigateInto(item) {
+  replaceMentionWith('@' + item.path + mentionSep);
+  updateMention(); // lists the folder's children
+}
+
+function attachMention(item) {
+  replaceMentionWith('@' + item.path + ' ');
+  if (!pendingMentions.some((m) => m.path === item.path)) {
+    pendingMentions.push({ path: item.path, type: item.type === 'dir' ? 'dir' : 'file' });
+  }
+  closeMention();
+  input.focus();
+}
+
+function chooseMention(item) {
+  if (!item) return;
+  if (item.type === 'dir') navigateInto(item);
+  else attachMention(item);
+}
+
+input.addEventListener('input', () => {
+  const caret = input.selectionStart;
+  if (mentionStart < 0) {
+    // A freshly typed "@" at a word boundary opens the picker.
+    const ch = input.value[caret - 1];
+    const prev = input.value[caret - 2];
+    if (ch === '@' && (caret - 1 === 0 || /\s/.test(prev || ''))) mentionStart = caret - 1;
+  }
+  if (mentionStart >= 0) updateMention();
+});
+
+input.addEventListener('keyup', (event) => {
+  if (mentionStart >= 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    updateMention();
+  }
+});
+
+input.addEventListener('blur', () => closeMention());
+
 input.addEventListener('keydown', (event) => {
+  // While the picker is open, these keys drive it instead of the input.
+  if (mentionActive()) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveMention(1);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveMention(-1);
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      chooseMention(mentionItems[mentionIndex]);
+      return;
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      if (mentionItems[mentionIndex]) attachMention(mentionItems[mentionIndex]);
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeMention();
+      return;
+    }
+  }
+
   if (event.key === 'Enter') {
     event.preventDefault();
     const text = input.value.trim();
     input.value = '';
+    closeMention();
     if (text.startsWith('/')) runCommand(text);
     else send(text);
   } else if (event.key === 'Escape') {
+    closeMention();
     inputRow.classList.add('hidden');
     input.blur();
     scheduleFit();

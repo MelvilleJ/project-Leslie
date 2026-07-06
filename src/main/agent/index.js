@@ -46,33 +46,61 @@ function makeCtx(onEvent) {
  * @param {(event: { type: string, text?: string, url?: string }) => void} onEvent
  * @returns {Promise<string>} the final summary text
  */
-const AGENT_CAPABILITIES = [
-  'AGENT MODE IS ON. You are running on the user\'s Windows PC and have tools that REALLY execute here:',
-  'run_command (PowerShell), install_software (winget), open_app, open_url, web_search, deep_search,',
-  'create_document (make a real Word/PDF/Excel/text file and open it).',
-  'When the user asks you to DO something on their computer — clone a repo, create/move/delete files,',
-  'install software, run a program — actually CALL the matching tool so it runs. Do NOT just print the',
-  'command, and do NOT claim you are sandboxed or separated from their system: you are not. Your tools',
-  'run on their machine. Safe/allowlisted commands run immediately; anything else shows the user an',
-  'Approve/Deny prompt before it runs, so it is always safe to attempt the call. Use PowerShell syntax,',
-  'then report what actually happened from the tool output.'
-].join(' ');
+// OS facts the capability text adapts to, from the detected/configured target.
+function osFacts() {
+  if (config.osTarget === 'linux') {
+    const distro =
+      { debian: 'Debian/Ubuntu (apt)', fedora: 'Fedora (dnf)', arch: 'Arch Linux (pacman)' }[config.linuxDistro] ||
+      'Linux';
+    return { os: `Linux — ${distro}`, shell: 'bash' };
+  }
+  return { os: 'Windows', shell: 'PowerShell' };
+}
 
-const CHAT_CAPABILITIES = [
-  'You have tools that really work — call them instead of describing them: web_search and deep_search to',
-  'look things up, open_url to show a page, open_app to launch an app, and create_document to make a real',
-  'Word/PDF/Excel/text file and open it. You cannot run shell commands or install software in this mode.',
-  'If the user asks for a system task that needs that (e.g. cloning a repo or installing something), tell',
-  'them to switch to Agent mode (the 🤖 button) rather than refusing.'
-].join(' ');
+// Read-only filesystem sentence, included only when those tools are enabled.
+function fsClause(inAgent) {
+  if (!config.fsReadEnabled) return '';
+  return inAgent
+    ? 'list_directory, read_file, and read_document (read-only: browse folders, read text files, and ' +
+        'extract text from Word/PDF/Excel documents on this machine).'
+    : 'and list_directory / read_file / read_document to browse folders, read text files, and open ' +
+        'Word/PDF/Excel documents on this computer (read-only).';
+}
+
+function agentCapabilities() {
+  const { os, shell } = osFacts();
+  return [
+    `AGENT MODE IS ON. You are running on the user's ${os} PC and have tools that REALLY execute here:`,
+    `run_command (${shell}), install_software, open_app, open_url, web_search, deep_search,`,
+    'create_document (make a real Word/PDF/Excel/text file and open it).',
+    fsClause(true),
+    'When the user asks you to DO something on their computer — clone a repo, create/move/delete files,',
+    'install software, run a program, or look at their files — actually CALL the matching tool so it runs. Do',
+    'NOT just print the command, and do NOT claim you are sandboxed or separated from their system: you are',
+    'not. Your tools run on their machine. Safe/allowlisted commands run immediately; anything else shows the',
+    `user an Approve/Deny prompt before it runs, so it is always safe to attempt the call. Use ${shell} syntax,`,
+    'then report what actually happened from the tool output.'
+  ].filter(Boolean).join(' ');
+}
+
+function chatCapabilities() {
+  return [
+    'You have tools that really work — call them instead of describing them: web_search and deep_search to',
+    'look things up, open_url to show a page, open_app to launch an app, and create_document to make a real',
+    `Word/PDF/Excel/text file and open it. ${fsClause(false)}`,
+    'You cannot run shell commands or install software in this mode.',
+    'If the user asks for a system task that needs that (e.g. cloning a repo or installing something), tell',
+    'them to switch to Agent mode (the 🤖 button) rather than refusing.'
+  ].filter(Boolean).join(' ');
+}
 
 // Plan mode is covered by the PLAN_MODE_DIRECTIVE the loop injects.
 function modeCapabilities() {
   if (!config.toolsEnabled || config.planMode) return '';
-  return config.agentMode ? AGENT_CAPABILITIES : CHAT_CAPABILITIES;
+  return config.agentMode ? agentCapabilities() : chatCapabilities();
 }
 
-async function sendMessage(text, onEvent) {
+async function sendMessage(text, onEvent, contextText) {
   const parts = [config.systemPrompt];
   if (config.learningMode) {
     const remembered = memory.format();
@@ -83,10 +111,15 @@ async function sendMessage(text, onEvent) {
   if (config.detailedResponses) parts.push(FORMAT_INSTRUCTIONS);
   const systemContent = parts.join('\n\n');
 
+  // "@"-mention attachments (file/folder contents) ride along with this turn's
+  // user message so the model can see them, but only the clean text is stored in
+  // history — keeping the transcript readable and within the history window.
+  const userContent = contextText ? `${contextText}\n\n${text}` : text;
+
   const messages = [
     { role: 'system', content: systemContent },
     ...history,
-    { role: 'user', content: text }
+    { role: 'user', content: userContent }
   ];
 
   const { summary, details } = await runConversation(messages, onEvent, makeCtx(onEvent), text);

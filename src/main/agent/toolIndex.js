@@ -15,6 +15,18 @@ const KEYWORD_HINTS = [
   [
     ['document', 'word', 'docx', 'pdf', 'spreadsheet', 'excel', 'xlsx', 'csv', 'report', 'letter', 'resume', 'cv', 'write a', 'create a doc', 'save as', 'export', 'make a file'],
     ['create_document']
+  ],
+  [
+    ['list', 'directory', 'folder', 'files in', "what's in", 'whats in', 'browse', 'drive', 'drives', 'downloads', 'desktop', 'my documents', 'ls ', 'dir '],
+    ['list_directory']
+  ],
+  [
+    ['read file', 'read the file', 'open the file', 'contents of', 'content of', 'show me the file', 'what does the file', 'cat ', 'view file', '.txt', '.md', '.json', '.csv', '.log', '.ini', '.cfg', '.yml', '.yaml'],
+    ['read_file']
+  ],
+  [
+    ['document', 'read the document', 'read my', 'open the document', 'word doc', 'word document', '.docx', 'pdf', '.pdf', 'spreadsheet', 'excel', '.xlsx', '.xls', 'summari', 'what does', 'says', 'resume', 'report', 'invoice', 'contract', 'paper'],
+    ['read_document']
   ]
 ];
 

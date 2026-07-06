@@ -90,6 +90,15 @@ module.exports = {
   docsDir: env.LESLIE_DOCS_DIR || require('node:path').join(require('node:os').homedir(), 'Documents'),
   docsAutoOpen: env.LESLIE_DOCS_AUTO_OPEN !== '0',
 
+  // --- Filesystem reading (read-only) ---------------------------------------
+  // OS-aware list_directory / read_file tools. On by default; set LESLIE_FS_READ=0
+  // to remove them entirely. Caps bound how much a single read/list returns.
+  fsReadEnabled: env.LESLIE_FS_READ !== '0',
+  fsReadMaxBytes: Number(env.LESLIE_FS_READ_MAX_BYTES ?? 262144),
+  fsListMaxEntries: Number(env.LESLIE_FS_LIST_MAX_ENTRIES ?? 200),
+  // Max characters of extracted text returned by read_document (Word/PDF/Excel/…).
+  fsDocMaxChars: Number(env.LESLIE_FS_DOC_MAX_CHARS ?? 20000),
+
   voiceEnabled: env.LESLIE_VOICE !== '0',
   wakeWord: env.LESLIE_WAKE_WORD || 'hey leslie',
   sttBackend: (env.LESLIE_STT_BACKEND || 'local').toLowerCase(),

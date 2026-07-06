@@ -11,12 +11,20 @@ const remember = require('./remember');
 const createDocument = require('./createDocument');
 const runCommand = require('./runCommand');
 const installSoftware = require('./installSoftware');
+const listDirectory = require('./listDirectory');
+const readFile = require('./readFile');
+const readDocument = require('./readDocument');
 
 const base = [webSearch, deepSearch, openUrl, openSearch, openApp, createDocument];
 const agentTools = [runCommand, installSoftware];
+// Read-only filesystem tools. OS-aware, non-destructive, so they're available in
+// every mode (including plan mode's read-only investigation), gated only by the
+// fsReadEnabled switch. read_document extracts text from Word/PDF/Excel/etc.
+const fsTools = [listDirectory, readFile, readDocument];
 
 function active() {
   const list = config.agentMode ? [...base, ...agentTools] : [...base];
+  if (config.fsReadEnabled) list.push(...fsTools);
   if (config.learningMode) list.push(remember);
   return list;
 }

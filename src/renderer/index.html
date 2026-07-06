@@ -35,8 +35,10 @@
     <div id="companion" class="sprite"></div>
 
     <div id="input-row">
+      <!-- "@" file/folder picker: populated and toggled from renderer.js. -->
+      <div id="mention-menu" class="hidden" role="listbox"></div>
       <input id="input" type="text" autocomplete="off" spellcheck="false"
-             placeholder="Say something… (/help)" />
+             placeholder="Say something… (@ for files, /help)" />
       <button id="agent-toggle" title="Mode: click to switch (Chat → Plan → Agent)"><i class="fa-solid fa-comment" aria-hidden="true"></i></button>
       <button id="mic" title="Dictate (push to talk)"><i class="fa-solid fa-microphone" aria-hidden="true"></i></button>
       <button id="settings-btn" title="Settings &amp; past conversations"><i class="fa-solid fa-gear" aria-hidden="true"></i></button>

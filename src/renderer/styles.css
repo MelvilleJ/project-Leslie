@@ -197,11 +197,83 @@ body {
 
 #input-row {
   -webkit-app-region: no-drag;
+  position: relative; /* anchor for the "@" mention menu */
   display: flex;
   align-items: stretch;
   gap: 6px;
   width: 244px;
   margin-top: 8px;
+}
+
+/* "@" file/folder picker — floats just above the input row. */
+#mention-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  max-height: 208px;
+  overflow-y: auto;
+  padding: 4px;
+  background: rgba(24, 24, 28, 0.98);
+  border: 1px solid #4a4a52;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+}
+
+#mention-menu.hidden {
+  display: none;
+}
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: #e6e6ea;
+  white-space: nowrap;
+}
+
+.mention-item .mi-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  text-align: center;
+  opacity: 0.85;
+}
+
+.mention-item .mi-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mention-item .mi-type {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  color: #8a8a96;
+}
+
+.mention-item:hover,
+.mention-item.active {
+  background: rgba(155, 123, 255, 0.28);
+}
+
+.mention-empty {
+  padding: 8px;
+  font-size: 0.74rem;
+  color: #8a8a96;
+  text-align: center;
+}
+
+#mention-menu::-webkit-scrollbar {
+  width: 8px;
+}
+#mention-menu::-webkit-scrollbar-thumb {
+  background: rgba(155, 123, 255, 0.35);
+  border-radius: 999px;
 }
 
 #input-row.hidden {

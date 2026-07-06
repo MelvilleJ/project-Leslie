@@ -7,9 +7,17 @@ contextBridge.exposeInMainWorld('leslie', {
    * Send a message to the agent and await its full reply.
    * Token deltas arrive via onAgentChunk while this is pending.
    * @param {string} text
+   * @param {{path:string,type:string}[]} [mentions] "@" file/folder attachments to expand into context.
    * @returns {Promise<{ reply: string } | { error: string }>}
    */
-  sendMessage: (text) => ipcRenderer.invoke('agent:message', text),
+  sendMessage: (text, mentions) => ipcRenderer.invoke('agent:message', { text, mentions: mentions || [] }),
+
+  /**
+   * Autocomplete file/folder paths for the "@" picker.
+   * @param {string} query text typed after "@"
+   * @returns {Promise<{ items: {name:string,path:string,type:string}[], sep:string }>}
+   */
+  suggestPaths: (query) => ipcRenderer.invoke('fs:suggest', query),
 
   /**
    * Subscribe to streamed answer tokens.
