@@ -30,6 +30,7 @@ function buildCommand(pkg, { type }) {
 
 module.exports = {
   name: 'install_software',
+  selfGates: true,
   get description() {
     if (config.osTarget === 'linux') {
       const mgr = { debian: 'apt', fedora: 'dnf', arch: 'pacman' }[config.linuxDistro] || 'apt';

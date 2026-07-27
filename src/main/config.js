@@ -42,16 +42,30 @@ module.exports = {
     'You are LESLIE, a friendly desktop companion. Reply in a warm, concise, conversational way - usually one or two short sentences.',
 
   temperature: Number(env.LESLIE_TEMPERATURE ?? 0.7),
-  maxTokens: Number(env.LESLIE_MAX_TOKENS ?? 512),
+
+  // Agent loop trims requests to fit; set to your server's actual n_ctx.
+  contextTokens: Number(env.LESLIE_CONTEXT_TOKENS ?? 4096),
 
   historyLimit: Number(env.LESLIE_HISTORY_LIMIT ?? 20),
 
   toolsEnabled: env.LESLIE_TOOLS !== '0',
   maxToolCalls: Number(env.LESLIE_MAX_TOOL_CALLS ?? 5),
 
+  llmMaxRetries: Number(env.LESLIE_LLM_MAX_RETRIES ?? 2),
+  llmRetryDelayMs: Number(env.LESLIE_LLM_RETRY_DELAY_MS ?? 600),
+
+  permissionAsk: env.LESLIE_PERMISSION_ASK
+    ? env.LESLIE_PERMISSION_ASK.split(',').map((s) => s.trim()).filter(Boolean)
+    : [],
+
+  fsWriteEnabled: env.LESLIE_FS_WRITE === '1',
+  fsWriteRoots: (env.LESLIE_FS_WRITE_ROOTS
+    ? env.LESLIE_FS_WRITE_ROOTS.split(',').map((s) => s.trim()).filter(Boolean)
+    : [env.LESLIE_DOCS_DIR || require('node:path').join(require('node:os').homedir(), 'Documents')]),
+  fsWriteMaxBytes: Number(env.LESLIE_FS_WRITE_MAX_BYTES ?? 524288),
+
   planMode: env.LESLIE_PLAN_MODE === '1',
 
-  // background extraction), and inject them into the system prompt. On by
   learningMode: env.LESLIE_LEARNING !== '0',
   learnEvery: Number(env.LESLIE_LEARN_EVERY ?? 3),
 
@@ -70,6 +84,36 @@ module.exports = {
   deepSearchPages: Number(env.LESLIE_DEEP_SEARCH_PAGES ?? 3),
   deepSearchChars: Number(env.LESLIE_DEEP_SEARCH_CHARS ?? 4000),
   deepSearchTimeoutMs: Number(env.LESLIE_DEEP_SEARCH_TIMEOUT_MS ?? 8000),
+
+  // --- Deep research (iterative multi-round search + synthesis) -------------
+  // Defaults are tuned down from the reference implementation for a single
+  // local model on one GPU — fewer rounds and lower concurrency so a run
+  // finishes in a few minutes rather than ten.
+  //
+  // researchContextTokens is the target model's context window. Every
+  // internal call (query gen, extraction, synthesis, final report) sizes its
+  // prompt content and requested completion length against this, so research
+  // stays usable on small local-model context windows instead of throwing
+  // "exceeds context size" errors. Set it to match your actual server's n_ctx.
+  researchContextTokens: Number(env.LESLIE_RESEARCH_CONTEXT_TOKENS ?? 4096),
+  researchMaxRounds: Number(env.LESLIE_RESEARCH_MAX_ROUNDS ?? 6),
+  researchMinRounds: Number(env.LESLIE_RESEARCH_MIN_ROUNDS ?? 2),
+  researchMaxEmptyRounds: Number(env.LESLIE_RESEARCH_MAX_EMPTY_ROUNDS ?? 2),
+  researchMaxTimeMs: Number(env.LESLIE_RESEARCH_MAX_TIME_MS ?? 300000),
+  researchMaxUrlsPerRound: Number(env.LESLIE_RESEARCH_URLS_PER_ROUND ?? 3),
+  researchSearchCount: Number(env.LESLIE_RESEARCH_SEARCH_COUNT ?? 8),
+  researchSearchTimeoutMs: Number(env.LESLIE_RESEARCH_SEARCH_TIMEOUT_MS ?? 15000),
+  // Upper bound on extracted page text; the engine further clamps this per
+  // call to whatever actually fits the configured context window.
+  researchMaxContentChars: Number(env.LESLIE_RESEARCH_CONTENT_CHARS ?? 8000),
+  researchExtractionConcurrency: Number(env.LESLIE_RESEARCH_CONCURRENCY ?? 3),
+  // Completion budget for synthesis/final-report calls. Also clamped per call
+  // to fit researchContextTokens — this default only matters on larger-context
+  // servers where the clamp doesn't kick in.
+  researchMaxReportTokens: Number(env.LESLIE_RESEARCH_MAX_TOKENS ?? 1200),
+  researchExtractionTimeoutMs: Number(env.LESLIE_RESEARCH_EXTRACT_TIMEOUT_MS ?? 90000),
+  researchSynthesisTimeoutMs: Number(env.LESLIE_RESEARCH_SYNTH_TIMEOUT_MS ?? 180000),
+  researchQueryTimeoutMs: Number(env.LESLIE_RESEARCH_QUERY_TIMEOUT_MS ?? 60000),
 
   osTarget: env.LESLIE_OS_TARGET || (process.platform === 'linux' ? 'linux' : 'windows'),
   linuxDistro: env.LESLIE_LINUX_DISTRO || 'debian',

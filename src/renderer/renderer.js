@@ -1,40 +1,98 @@
 'use strict';
 
-const companion = document.getElementById('companion');
-const thought = document.getElementById('thought');
-const thoughtText = document.getElementById('thought-text');
-const bubble = document.getElementById('bubble');
-const bubbleText = document.getElementById('bubble-text');
-const inputRow = document.getElementById('input-row');
+const avatar = document.getElementById('avatar');
+const stage = document.getElementById('stage');
+const transcript = document.getElementById('transcript');
+const statusLine = document.getElementById('status');
 const input = document.getElementById('input');
 const mic = document.getElementById('mic');
-const confirmBox = document.getElementById('confirm');
-const confirmText = document.getElementById('confirm-text');
-const confirmYes = document.getElementById('confirm-yes');
-const confirmNo = document.getElementById('confirm-no');
+const sendBtn = document.getElementById('send-btn');
 const agentToggle = document.getElementById('agent-toggle');
 const settingsBtn = document.getElementById('settings-btn');
 const mentionMenu = document.getElementById('mention-menu');
+const commandMenu = document.getElementById('command-menu');
 
-// --- Animation engine -------------------------------------------------------
-// A small state machine: the active character STATE (resolved by priority from
-// a set of flags) maps through user-configurable BINDINGS to a CLIP, which the
-// frame loop plays. The library + bindings come from the main process
-// (window.leslie.getAnimations) and update live on 'animations:changed'.
+let expanded = false;
+let pendingConfirms = 0;
 
-// Built-in clips reference the sheets bundled in assets/; uploaded clips are
-// served from userData over the leslie-sprite:// protocol.
+function setExpanded(on) {
+  on = !!on;
+  if (on === expanded) return;
+  expanded = on;
+  document.body.classList.toggle('expanded', on);
+  window.leslie.setExpanded(on);
+  if (on) setTimeout(() => input.focus(), 0);
+}
+
+// Guard against collapse while confirming or pointer over panel (focus-follows-mouse).
+let pointerInside = false;
+document.documentElement.addEventListener('mouseenter', () => { pointerInside = true; });
+document.documentElement.addEventListener('mouseleave', () => { pointerInside = false; });
+
+window.leslie.onWindowBlur(() => {
+  if (!pendingConfirms && !pointerInside) setExpanded(false);
+});
+
+// Measure pointerdown/up distance to avoid Wayland compositor's move-detection.
+window.leslie.onWindowMoved(() => {
+  setFlag('moving', true);
+  if (moveTimer) clearTimeout(moveTimer);
+  moveTimer = setTimeout(() => setFlag('moving', false), 600);
+});
+
+let pointerDownAt = 0;
+let pointerDownX = 0;
+let pointerDownY = 0;
+let singleClickTimer = null;
+let lastClickAt = 0;
+const DRAG_PX = 6;
+const DBLCLICK_MS = 400;
+
+stage.addEventListener('pointerdown', (e) => {
+  pointerDownAt = Date.now();
+  pointerDownX = e.clientX;
+  pointerDownY = e.clientY;
+});
+
+stage.addEventListener('pointerup', (e) => {
+  if (Date.now() - pointerDownAt > 800) return; // held too long to be a click
+  const dx = Math.abs(e.clientX - pointerDownX);
+  const dy = Math.abs(e.clientY - pointerDownY);
+  if (dx > DRAG_PX || dy > DRAG_PX) return; // moved — a drag, not a click
+
+  const now = Date.now();
+  if (now - lastClickAt < DBLCLICK_MS) {
+    if (singleClickTimer) {
+      clearTimeout(singleClickTimer);
+      singleClickTimer = null;
+    }
+    lastClickAt = 0;
+    setExpanded(true); // second click within the window -> double-click
+    return;
+  }
+  lastClickAt = now;
+  singleClickTimer = setTimeout(() => {
+    singleClickTimer = null;
+    setExpanded(!expanded);
+  }, DBLCLICK_MS);
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.code !== 'Space' && event.key !== ' ') return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON') return;
+  event.preventDefault();
+  setExpanded(true);
+});
+
+let moveTimer = null;
+
 function clipSheetUrl(clip) {
   if (!clip) return '';
   if (clip.builtin) return `../../assets/animations/${clip.sheet}/spritesheet.png`;
   return `leslie-sprite://clips/${clip.file}`;
 }
 
-// State priority, highest first. `idle` is the implicit fallback (always last).
-// `talking` sits above `thinking` so a bound talking clip takes over while the
-// answer streams; when talking is UNBOUND it's transparent and the still-active
-// `thinking` shows through — so by default the thinking animation plays for the
-// whole turn (matching the original behaviour) until a talking clip is assigned.
 const STATE_PRIORITY = ['toolCall', 'longThink', 'talking', 'thinking', 'listening', 'moving', 'idle'];
 const flags = {
   thinking: false, longThink: false, toolCall: false,
@@ -53,17 +111,17 @@ let lastIdleId = null;
 function drawFrame(clip, n) {
   const col = n % clip.cols;
   const row = Math.floor(n / clip.cols);
-  companion.style.backgroundPosition = `-${col * clip.frameW}px -${row * clip.frameH}px`;
+  avatar.style.backgroundPosition = `-${col * clip.frameW}px -${row * clip.frameH}px`;
 }
 
 function playClip(clip) {
   if (!clip || clip === currentClip) return;
   currentClip = clip;
   frame = 0;
-  companion.style.backgroundImage = `url('${clipSheetUrl(clip)}')`;
-  companion.style.backgroundRepeat = 'no-repeat';
-  companion.style.width = `${clip.frameW}px`;
-  companion.style.height = `${clip.frameH}px`;
+  avatar.style.backgroundImage = `url('${clipSheetUrl(clip)}')`;
+  avatar.style.backgroundRepeat = 'no-repeat';
+  avatar.style.width = `${clip.frameW}px`;
+  avatar.style.height = `${clip.frameH}px`;
   drawFrame(clip, 0);
   if (animTimer) clearInterval(animTimer);
   animTimer = setInterval(() => {
@@ -72,7 +130,6 @@ function playClip(clip) {
   }, clip.frameMs || 140);
 }
 
-// The highest-priority state that is both active AND actually has a clip bound.
 function activeState() {
   for (const s of STATE_PRIORITY) {
     if (s === 'idle') return 'idle';
@@ -91,7 +148,6 @@ function clipForState(state) {
   return clipsById[ids[0]] || null;
 }
 
-// Idle variants rotate on a ~10s timer (only while idle and >1 variant exists).
 function manageIdleRotation(state) {
   const multi = state === 'idle' && (bindings.idle || []).length > 1;
   if (multi && !idleRotateTimer) {
@@ -129,12 +185,10 @@ function applyAnimConfig(cfg) {
   for (const c of cfg.clips || []) clipsById[c.id] = c;
   bindings = cfg.bindings || {};
   if (!(bindings.idle || []).length && clipsById['builtin:idle']) bindings.idle = ['builtin:idle'];
-  currentClip = null; // force a replay even if the clip object identity changed
+  currentClip = null;
   resolveAnimation();
 }
 
-// Seed with built-in defaults so the companion animates instantly, then pull the
-// real (possibly customised) config from the main process.
 applyAnimConfig({
   clips: [
     { id: 'builtin:idle', builtin: true, sheet: 'idle', frameW: 228, frameH: 537, cols: 4, frames: 25, frameMs: 140 },
@@ -144,22 +198,6 @@ applyAnimConfig({
 });
 window.leslie.getAnimations().then(applyAnimConfig).catch(() => {});
 window.leslie.onAnimations(applyAnimConfig);
-
-// Transient-state drivers (tool call flashes; drag reverts shortly after motion
-// stops; long-think kicks in if a reply is slow).
-let toolFlashTimer = null;
-window.leslie.onToolCall(() => {
-  setFlag('toolCall', true);
-  if (toolFlashTimer) clearTimeout(toolFlashTimer);
-  toolFlashTimer = setTimeout(() => setFlag('toolCall', false), 1200);
-});
-
-let moveTimer = null;
-window.leslie.onWindowMoved(() => {
-  setFlag('moving', true);
-  if (moveTimer) clearTimeout(moveTimer);
-  moveTimer = setTimeout(() => setFlag('moving', false), 600);
-});
 
 let longThinkTimer = null;
 function startThinking() {
@@ -175,170 +213,347 @@ function endTurn() {
   setFlag('thinking', false);
   setFlag('longThink', false);
   setFlag('talking', false);
+  setFlag('toolCall', false);
 }
 
-const FIT_PAD = 14;
-let lastFitHeight = 0;
-let fitScheduled = false;
-
-function topElement() {
-  if (!thought.classList.contains('hidden')) return thought;
-  if (!bubble.classList.contains('hidden')) return bubble;
-  if (!confirmBox.classList.contains('hidden')) return confirmBox;
-  return companion;
+function nearBottom() {
+  return transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 80;
+}
+function scrollToBottom(force) {
+  if (force || nearBottom()) transcript.scrollTop = transcript.scrollHeight;
 }
 
-function measureContentHeight() {
-  const bottomEl = inputRow.classList.contains('hidden') ? companion : inputRow;
-  const top = topElement().getBoundingClientRect().top;
-  const bottom = bottomEl.getBoundingClientRect().bottom;
-  return Math.ceil(bottom - top + FIT_PAD);
+function setStatus(text) {
+  statusLine.textContent = text || '';
 }
 
-function fitWindow() {
-  const height = measureContentHeight();
-  if (Math.abs(height - lastFitHeight) < 3) return;
-  lastFitHeight = height;
-  window.leslie.fitHeight(height);
+function appendUser(text) {
+  const el = document.createElement('div');
+  el.className = 'msg user';
+  el.textContent = text;
+  transcript.appendChild(el);
+  scrollToBottom(true);
 }
 
-function scheduleFit() {
-  if (fitScheduled) return;
-  fitScheduled = true;
-  requestAnimationFrame(() => {
-    fitScheduled = false;
-    fitWindow();
-  });
+function systemLine(text, kind) {
+  const el = document.createElement('div');
+  el.className = 'msg system' + (kind ? ` ${kind}` : '');
+  el.textContent = text;
+  transcript.appendChild(el);
+  scrollToBottom();
+  return el;
 }
 
-let hideTimer = null;
+let current = null; // { el, thinking, thinkingBody, tools, body, raw, cards }
 
-function clearHideTimer() {
-  if (hideTimer) {
-    clearTimeout(hideTimer);
-    hideTimer = null;
+function beginAssistant() {
+  const el = document.createElement('div');
+  el.className = 'msg assistant';
+
+  const tools = document.createElement('div');
+  tools.className = 'tools';
+
+  const body = document.createElement('div');
+  body.className = 'msg-body streaming';
+
+  el.append(tools, body);
+  transcript.appendChild(el);
+  current = { el, thinking: null, thinkingBody: null, tools, body, raw: '', cards: new Map(), synapses: new Map() };
+  scrollToBottom(true);
+}
+
+function ensureThinking() {
+  if (!current) return null;
+  if (current.thinking) return current.thinkingBody;
+  const box = document.createElement('div');
+  box.className = 'thinking';
+  const head = document.createElement('div');
+  head.className = 'thinking-head';
+  head.innerHTML = '<i class="fa-solid fa-chevron-down chev" aria-hidden="true"></i><span>Reasoning</span>';
+  const body = document.createElement('div');
+  body.className = 'thinking-body';
+  head.addEventListener('click', () => box.classList.toggle('collapsed'));
+  box.append(head, body);
+  current.el.insertBefore(box, current.tools);
+  current.thinking = box;
+  current.thinkingBody = body;
+  return body;
+}
+
+function appendThinking(delta) {
+  const body = ensureThinking();
+  if (!body) return;
+  body.textContent += delta;
+  body.scrollTop = body.scrollHeight;
+  scrollToBottom();
+}
+
+function appendBody(delta) {
+  if (!current) return;
+  // First answer text: collapse the reasoning block, switch to "talking".
+  if (!current.raw && current.thinking) current.thinking.classList.add('collapsed');
+  current.raw += delta;
+  current.body.textContent = current.raw;
+  scrollToBottom();
+}
+
+function finishAssistant(reply) {
+  if (!current) return;
+  // Freeze any still-running synapse timers (normally the tool 'end' event does
+  // this, but guard against a turn ending without one so no interval leaks).
+  for (const synapse of current.synapses.values()) synapse.complete();
+  const md = (reply && reply.trim()) || current.raw;
+  current.body.classList.remove('streaming');
+  if (md) {
+    try {
+      current.body.innerHTML = window.markdown.render(md);
+    } catch {
+      current.body.textContent = md;
+    }
+  } else {
+    // No answer text: drop the empty body, and the whole message too unless it
+    // carries tool cards worth keeping.
+    current.body.remove();
+    if (!current.tools.childElementCount) current.el.remove();
   }
+  scrollToBottom();
+  current = null;
 }
 
-function hideThought() {
-  thought.classList.add('hidden');
-}
+const TOOL_ICON = {
+  web_search: 'fa-magnifying-glass', deep_search: 'fa-magnifying-glass', open_search: 'fa-magnifying-glass',
+  deep_research: 'fa-magnifying-glass-chart',
+  open_url: 'fa-link', open_app: 'fa-rocket', run_command: 'fa-terminal',
+  install_software: 'fa-download', create_document: 'fa-file',
+  read_file: 'fa-file-lines', read_document: 'fa-file-lines', list_directory: 'fa-folder',
+  write_file: 'fa-file-pen', run_subagent: 'fa-diagram-project',
+  set_mode: 'fa-toggle-on',
+  remember: 'fa-brain'
+};
 
-function hideAll() {
-  bubble.classList.add('hidden');
-  hideThought();
-  scheduleFit();
-}
-
-function showBubble(text, { thinking = false, autoHideMs = 0 } = {}) {
-  bubbleText.textContent = text;
-  bubble.classList.remove('hidden');
-  bubble.classList.toggle('thinking', thinking);
-  bubbleText.scrollTop = 0;
-  clearHideTimer();
-  scheduleFit();
-  if (autoHideMs > 0) {
-    hideTimer = setTimeout(hideAll, autoHideMs);
+function toolCardStart({ id, name, detail }) {
+  if (!current) return;
+  // deep_research gets the live synapse visual instead of a compact row.
+  if (name === 'deep_research' && typeof window.createResearchSynapse === 'function') {
+    const box = document.createElement('div');
+    box.className = 'tool-card-research';
+    const synapse = window.createResearchSynapse(box, { query: detail || '', compact: true });
+    current.tools.appendChild(box);
+    if (id) current.synapses.set(id, synapse);
+    scrollToBottom();
+    return;
   }
+  const card = document.createElement('div');
+  card.className = 'tool-card running';
+  const icon = TOOL_ICON[name] || 'fa-wrench';
+  card.innerHTML =
+    `<i class="fa-solid ${icon} tc-icon" aria-hidden="true"></i>` +
+    `<span class="tc-name"></span>` +
+    `<span class="tc-detail"></span>` +
+    `<i class="fa-solid fa-spinner tc-status" aria-hidden="true"></i>`;
+  card.querySelector('.tc-name').textContent = name;
+  card.querySelector('.tc-detail').textContent = detail || '';
+  current.tools.appendChild(card);
+  if (id) current.cards.set(id, card);
+  scrollToBottom();
+}
+
+function toolCardEnd({ id, ok, title }) {
+  const synapse = current && id ? current.synapses.get(id) : null;
+  if (synapse) {
+    if (ok) synapse.complete();
+    else synapse.fail();
+    return;
+  }
+  const card = current && id ? current.cards.get(id) : null;
+  if (!card) return;
+  card.classList.remove('running');
+  card.classList.add(ok ? 'done' : 'failed');
+  if (title) card.querySelector('.tc-detail').textContent = title;
+  const status = card.querySelector('.tc-status');
+  status.className = `fa-solid ${ok ? 'fa-check' : 'fa-xmark'} tc-status`;
+}
+
+// Map a deep_research progress event onto the synapse's controls.
+function driveSynapse(synapse, e) {
+  if (!e) return;
+  if (e.phase) {
+    synapse.setPhase(e.phase, { queries: e.queries, title: e.title, total_findings: e.totalFindings });
+  }
+  if (typeof e.round === 'number') synapse.setRound(e.round);
+  if (typeof e.totalFindings === 'number') synapse.setSourceCount(e.totalFindings);
+  if (e.phase === 'error') synapse.fail(e.message);
+}
+
+// Long-running tools narrate progress mid-run. deep_research drives its synapse;
+// everything else updates its card's detail line in place.
+function toolCardProgress({ id, detail, research }) {
+  if (!current || !id) return;
+  const synapse = current.synapses.get(id);
+  if (synapse) {
+    driveSynapse(synapse, research);
+    scrollToBottom();
+    return;
+  }
+  const card = current.cards.get(id);
+  if (!card || !detail) return;
+  const el = card.querySelector('.tc-detail');
+  if (el) el.textContent = detail;
+  scrollToBottom();
 }
 
 let streaming = false;
 
 window.leslie.onAgentThink((delta) => {
   if (!streaming) return;
-  if (thought.classList.contains('hidden')) {
-    thought.classList.remove('hidden', 'collapsed');
-    thoughtText.textContent = '';
-  }
-  thoughtText.textContent += delta;
-  thoughtText.scrollTop = thoughtText.scrollHeight;
-  scheduleFit();
+  appendThinking(delta);
 });
 
 window.leslie.onAgentChunk((delta) => {
   if (!streaming) return;
-  // The answer has started: drop the long-think timer and enter "talking".
-  // `thinking` stays set (it's lower priority) so it still shows if talking is
-  // unbound; endTurn() clears both when the reply finishes.
   if (longThinkTimer) { clearTimeout(longThinkTimer); longThinkTimer = null; }
   setFlag('longThink', false);
   setFlag('talking', true);
-  if (bubble.classList.contains('thinking')) {
-    bubble.classList.remove('thinking');
-    bubbleText.textContent = '';
-    if (!thought.classList.contains('hidden')) thought.classList.add('collapsed');
-  }
-  bubbleText.textContent += delta;
-  bubbleText.scrollTop = bubbleText.scrollHeight;
-  scheduleFit();
+  setStatus('Answering…');
+  appendBody(delta);
 });
 
-const DETAILS_POINTER = '📄 Full answer in the details window.';
-function detailsTeaser(teaser) {
-  return (teaser ? `${teaser}\n\n` : '') + DETAILS_POINTER;
-}
-
-window.leslie.onToDetails(({ teaser }) => {
-  if (!streaming) return;
-  bubble.classList.remove('thinking');
-  bubbleText.textContent = detailsTeaser(teaser);
-  bubbleText.scrollTop = 0;
-  scheduleFit();
+window.leslie.onToolCall((ev) => {
+  if (!ev || !streaming) return;
+  if (ev.phase === 'end') {
+    toolCardEnd(ev);
+    setFlag('toolCall', false);
+    return;
+  }
+  if (ev.phase === 'progress') {
+    toolCardProgress(ev);
+    setStatus(ev.detail || `Running ${ev.name}…`);
+    return;
+  }
+  setFlag('toolCall', true);
+  setStatus(`Running ${ev.name}…`);
+  toolCardStart(ev);
 });
 
 async function send(text) {
   text = text.trim();
   if (!text || streaming) return;
 
-  // Only keep "@" mentions whose path still appears in the message (the user may
-  // have deleted a token after picking it). Then clear for the next message.
+  // Only keep "@" mentions whose path still appears in the message.
   const mentions = pendingMentions.filter((m) => text.includes(m.path));
   pendingMentions = [];
 
+  setExpanded(true);
+  appendUser(text);
   streaming = true;
+  setSendMode(true);
   startThinking();
-  thoughtText.textContent = '';
-  thought.classList.add('hidden');
-  thought.classList.remove('collapsed');
-  showBubble('…', { thinking: true });
+  setStatus('Thinking…');
+  beginAssistant();
 
-  const res = await window.leslie.sendMessage(text, mentions);
+  let res;
+  try {
+    res = await window.leslie.sendMessage(text, mentions);
+  } catch (err) {
+    res = { error: err && err.message ? err.message : String(err) };
+  }
   streaming = false;
+  setSendMode(false);
   endTurn();
+  setStatus('');
 
   if (res && res.error) {
-    showBubble(`⚠ ${res.error}`, { autoHideMs: 12000 });
-  } else if (res && res.openedInDetails) {
-    showBubble(detailsTeaser(res.teaser), { autoHideMs: 10000 });
+    finishAssistant('');
+    systemLine(`⚠ ${res.error}`, 'error');
   } else {
-    showBubble((res && res.reply) || bubbleText.textContent, { autoHideMs: 10000 });
+    finishAssistant(res && res.reply);
+    if (res && res.aborted) systemLine('⏹ Interrupted.');
   }
 }
 
-let confirmId = null;
+// --- Dedicated deep-research flow -------------------------------------------
+// Runs the researcher directly (main process), bypassing the agent loop and its
+// tool schemas entirely, so the full cited report renders straight to the
+// transcript regardless of the chat model's context window. Driven by a live
+// synapse fed from research:progress events.
+let activeResearchSynapse = null;
 
-function hideConfirm() {
-  confirmBox.classList.add('hidden');
-  confirmId = null;
-  scheduleFit();
-}
+window.leslie.onResearchProgress((e) => {
+  if (activeResearchSynapse) driveSynapse(activeResearchSynapse, e);
+});
 
-function answerConfirm(approved) {
-  if (confirmId == null) return;
-  window.leslie.confirmResponse(confirmId, approved);
-  hideConfirm();
+async function runResearchFlow(query) {
+  query = query.trim();
+  if (!query || streaming) return;
+
+  setExpanded(true);
+  appendUser(`🔬 ${query}`);
+  streaming = true;
+  setSendMode(true);
+  setFlag('thinking', true);
+  setStatus('Researching…');
+  beginAssistant();
+
+  const box = document.createElement('div');
+  box.className = 'tool-card-research';
+  activeResearchSynapse = window.createResearchSynapse
+    ? window.createResearchSynapse(box, { query, compact: true })
+    : null;
+  current.tools.appendChild(box);
+  scrollToBottom();
+
+  let res;
+  try {
+    res = await window.leslie.runResearch(query);
+  } catch (err) {
+    res = { error: err && err.message ? err.message : String(err) };
+  }
+  streaming = false;
+  setSendMode(false);
+  endTurn();
+  setStatus('');
+
+  if (res && res.error) {
+    if (activeResearchSynapse) activeResearchSynapse.fail(res.error);
+    finishAssistant('');
+    systemLine(`⚠ research: ${res.error}`, 'error');
+  } else {
+    if (activeResearchSynapse) res.aborted ? activeResearchSynapse.fail('interrupted') : activeResearchSynapse.complete();
+    finishAssistant(res && res.report);
+    if (res && res.aborted) systemLine('⏹ Research interrupted.');
+  }
+  activeResearchSynapse = null;
 }
 
 window.leslie.onConfirm(({ id, message }) => {
-  confirmId = id;
-  confirmText.textContent = message || 'Run this command?';
-  confirmBox.classList.remove('hidden');
-  clearHideTimer();
-  scheduleFit();
-});
+  setExpanded(true);
+  pendingConfirms++;
+  const card = document.createElement('div');
+  card.className = 'confirm-card';
+  const text = document.createElement('div');
+  text.className = 'cc-text';
+  text.textContent = message || 'Run this command?';
+  const actions = document.createElement('div');
+  actions.className = 'cc-actions';
+  const yes = document.createElement('button');
+  yes.className = 'cc-yes';
+  yes.textContent = 'Approve';
+  const no = document.createElement('button');
+  no.className = 'cc-no';
+  no.textContent = 'Deny';
+  actions.append(yes, no);
+  card.append(text, actions);
+  transcript.appendChild(card);
+  scrollToBottom(true);
 
-confirmYes.addEventListener('click', () => answerConfirm(true));
-confirmNo.addEventListener('click', () => answerConfirm(false));
+  const answer = (approved) => {
+    window.leslie.confirmResponse(id, approved);
+    card.classList.add('resolved');
+    pendingConfirms = Math.max(0, pendingConfirms - 1);
+  };
+  yes.addEventListener('click', () => answer(true));
+  no.addEventListener('click', () => answer(false));
+});
 
 const MODES = ['chat', 'plan', 'agent'];
 const MODE_META = {
@@ -360,7 +575,7 @@ function reflectMode(next) {
 async function setMode(next, { announce = true } = {}) {
   const applied = await window.leslie.setMode(next);
   reflectMode(applied);
-  if (announce) showBubble(MODE_META[mode].say, { autoHideMs: 3500 });
+  if (announce) systemLine(MODE_META[mode].say);
 }
 
 agentToggle.addEventListener('click', () => {
@@ -368,9 +583,9 @@ agentToggle.addEventListener('click', () => {
 });
 window.leslie.onMode((next) => reflectMode(next));
 
-function clearReasoning() {
-  thoughtText.textContent = '';
-  thought.classList.add('hidden');
+function clearTranscript() {
+  transcript.innerHTML = '';
+  current = null;
 }
 
 const COMMANDS = {
@@ -380,28 +595,25 @@ const COMMANDS = {
   exit: () => window.leslie.quit(),
   reset: () => {
     window.leslie.resetChat();
-    clearReasoning();
-    showBubble('Conversation cleared.', { autoHideMs: 3000 });
+    clearTranscript();
+    systemLine('Conversation cleared.');
   },
   clear: () => COMMANDS.reset(),
   listen: () => {
     window.leslie.voiceListenOnce();
-    showBubble('Listening…', { autoHideMs: 4000 });
+    setStatus('Listening…');
   },
   mic: () => COMMANDS.listen(),
-  settings: () => {
-    window.leslie.openSettings();
-    showBubble('⚙ Opening settings…', { autoHideMs: 2500 });
-  },
+  settings: () => window.leslie.openSettings(),
   voice: (arg) => {
     const on = !/^(off|0|false|stop|no)$/i.test(arg.trim());
     window.leslie.setVoiceActive(on);
-    showBubble(on ? 'Voice on.' : 'Voice off.', { autoHideMs: 3000 });
+    systemLine(on ? 'Voice on.' : 'Voice off.');
   },
   mode: (arg) => {
     const m = arg.trim().toLowerCase();
     if (MODES.includes(m)) setMode(m);
-    else showBubble('Usage: /mode chat|plan|agent', { autoHideMs: 5000 });
+    else systemLine('Usage: /mode chat|plan|agent');
   },
   plan: (arg) => {
     const off = /^(off|0|false|stop|no)$/i.test(arg.trim());
@@ -411,11 +623,13 @@ const COMMANDS = {
     const off = /^(off|0|false|stop|no)$/i.test(arg.trim());
     setMode(off ? 'chat' : 'agent');
   },
+  research: (arg) => {
+    const q = (arg || '').trim();
+    if (q) runResearchFlow(q);
+    else systemLine('Usage: /research <question> — deep, multi-source research with a cited report.');
+  },
   help: () =>
-    showBubble(
-      'Commands: /hide, /close, /reset, /settings, /voice on|off, /mode chat|plan|agent, /plan, /agent on|off, /listen, /help',
-      { autoHideMs: 9000 }
-    )
+    systemLine('Commands: /research <q>, /hide, /close, /reset, /settings, /voice on|off, /mode chat|plan|agent, /plan, /agent on|off, /listen, /help')
 };
 
 function runCommand(raw) {
@@ -424,20 +638,18 @@ function runCommand(raw) {
   const arg = parts.slice(1).join(' ');
   const command = COMMANDS[name];
   if (command) command(arg);
-  else showBubble(`Unknown command: /${name}`, { autoHideMs: 5000 });
+  else systemLine(`Unknown command: /${name}`, 'error');
 }
 
 // --- "@" file / folder picker -----------------------------------------------
-// Claude Code style: type "@" to open an autocomplete of files and folders.
-// Enter navigates into a folder or attaches a file; Tab attaches the highlighted
-// item (file OR folder); Esc closes. Picked paths ride along with the next
-// message so the companion can view them (expanded into context in main.js).
-let pendingMentions = []; // [{ path, type }] attached for the next send
-let mentionStart = -1; // index of the active "@" in input.value, or -1
+// Type "@" to open an autocomplete of files and folders. Enter navigates into a
+// folder or attaches a file; Tab attaches the highlighted item; Esc closes.
+let pendingMentions = [];
+let mentionStart = -1;
 let mentionItems = [];
 let mentionIndex = 0;
 let mentionSep = '/';
-let mentionReq = 0; // guards against out-of-order async suggestions
+let mentionReq = 0;
 
 function mentionActive() {
   return mentionStart >= 0 && !mentionMenu.classList.contains('hidden');
@@ -448,7 +660,6 @@ function closeMention() {
   mentionItems = [];
   mentionMenu.classList.add('hidden');
   mentionMenu.innerHTML = '';
-  scheduleFit();
 }
 
 function iconFor(type) {
@@ -477,7 +688,6 @@ function renderMention() {
       ty.className = 'mi-type';
       ty.textContent = item.type === 'dir' ? 'folder' : '';
       row.append(icon, name, ty);
-      // mousedown (not click) so the input keeps focus/caret while we edit it.
       row.addEventListener('mousedown', (e) => {
         e.preventDefault();
         chooseMention(item);
@@ -486,7 +696,6 @@ function renderMention() {
     });
   }
   mentionMenu.classList.remove('hidden');
-  scheduleFit();
 }
 
 function moveMention(delta) {
@@ -505,7 +714,7 @@ async function refreshMention(query) {
   } catch {
     res = { items: [], sep: mentionSep };
   }
-  if (seq !== mentionReq || mentionStart < 0) return; // superseded or closed
+  if (seq !== mentionReq || mentionStart < 0) return;
   mentionItems = (res && res.items) || [];
   mentionSep = (res && res.sep) || mentionSep;
   mentionIndex = 0;
@@ -522,7 +731,6 @@ function updateMention() {
   refreshMention(input.value.slice(mentionStart + 1, caret));
 }
 
-// Replace the active "@…query" span with `token`, placing the caret after it.
 function replaceMentionWith(token) {
   const caret = input.selectionStart;
   const before = input.value.slice(0, mentionStart);
@@ -534,7 +742,7 @@ function replaceMentionWith(token) {
 
 function navigateInto(item) {
   replaceMentionWith('@' + item.path + mentionSep);
-  updateMention(); // lists the folder's children
+  updateMention();
 }
 
 function attachMention(item) {
@@ -552,53 +760,141 @@ function chooseMention(item) {
   else attachMention(item);
 }
 
+// --- "/" command palette ----------------------------------------------------
+// Type "/" at the start of the input to open a filterable list of commands,
+// mirroring the "@" file finder. Selecting completes "/name " into the input.
+const COMMAND_META = [
+  { name: 'research', usage: '/research <question>', desc: 'Deep multi-source research → cited report' },
+  { name: 'mode', usage: '/mode chat|plan|agent', desc: 'Switch operating mode' },
+  { name: 'plan', usage: '/plan', desc: 'Read-only plan mode' },
+  { name: 'agent', usage: '/agent on|off', desc: 'Agent mode (run commands)' },
+  { name: 'voice', usage: '/voice on|off', desc: 'Toggle voice listening' },
+  { name: 'listen', usage: '/listen', desc: 'Dictate one utterance' },
+  { name: 'settings', usage: '/settings', desc: 'Settings & past conversations' },
+  { name: 'reset', usage: '/reset', desc: 'Clear the conversation' },
+  { name: 'hide', usage: '/hide', desc: 'Hide the window' },
+  { name: 'close', usage: '/close', desc: 'Quit LESLIE' },
+  { name: 'help', usage: '/help', desc: 'List all commands' }
+];
+let commandItems = [];
+let commandIndex = 0;
+
+function commandActive() {
+  return !commandMenu.classList.contains('hidden');
+}
+
+function closeCommandMenu() {
+  commandItems = [];
+  commandMenu.classList.add('hidden');
+  commandMenu.innerHTML = '';
+}
+
+function renderCommandMenu() {
+  commandMenu.innerHTML = '';
+  if (!commandItems.length) {
+    const empty = document.createElement('div');
+    empty.className = 'mention-empty';
+    empty.textContent = 'No matching command';
+    commandMenu.appendChild(empty);
+  } else {
+    commandItems.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = 'mention-item' + (i === commandIndex ? ' active' : '');
+      row.setAttribute('role', 'option');
+      const icon = document.createElement('span');
+      icon.className = 'mi-icon';
+      icon.textContent = '/';
+      const name = document.createElement('span');
+      name.className = 'mi-name';
+      name.textContent = item.usage;
+      const desc = document.createElement('span');
+      desc.className = 'mi-type';
+      desc.textContent = item.desc;
+      row.append(icon, name, desc);
+      row.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        chooseCommand(item);
+      });
+      commandMenu.appendChild(row);
+    });
+  }
+  commandMenu.classList.remove('hidden');
+}
+
+function moveCommand(delta) {
+  if (!commandItems.length) return;
+  commandIndex = (commandIndex + delta + commandItems.length) % commandItems.length;
+  renderCommandMenu();
+  const active = commandMenu.querySelector('.mention-item.active');
+  if (active) active.scrollIntoView({ block: 'nearest' });
+}
+
+function updateCommandMenu() {
+  const caret = input.selectionStart;
+  const m = /^\/(\S*)$/.exec(input.value.slice(0, caret));
+  if (!m || mentionStart >= 0) {
+    closeCommandMenu();
+    return;
+  }
+  const q = m[1].toLowerCase();
+  commandItems = COMMAND_META.filter((c) => c.name.startsWith(q));
+  commandIndex = 0;
+  renderCommandMenu();
+}
+
+function chooseCommand(item) {
+  if (!item) return;
+  input.value = `/${item.name} `;
+  input.setSelectionRange(input.value.length, input.value.length);
+  closeCommandMenu();
+  input.focus();
+}
+
 input.addEventListener('input', () => {
   const caret = input.selectionStart;
   if (mentionStart < 0) {
-    // A freshly typed "@" at a word boundary opens the picker.
     const ch = input.value[caret - 1];
     const prev = input.value[caret - 2];
     if (ch === '@' && (caret - 1 === 0 || /\s/.test(prev || ''))) mentionStart = caret - 1;
   }
-  if (mentionStart >= 0) updateMention();
-});
-
-input.addEventListener('keyup', (event) => {
-  if (mentionStart >= 0 && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+  if (mentionStart >= 0) {
     updateMention();
+    closeCommandMenu();
+  } else {
+    updateCommandMenu();
   }
 });
 
-input.addEventListener('blur', () => closeMention());
+input.addEventListener('keyup', (event) => {
+  if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    if (mentionStart >= 0) updateMention();
+    else updateCommandMenu();
+  }
+});
+
+input.addEventListener('blur', () => {
+  closeMention();
+  closeCommandMenu();
+});
 
 input.addEventListener('keydown', (event) => {
-  // While the picker is open, these keys drive it instead of the input.
   if (mentionActive()) {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      moveMention(1);
-      return;
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      moveMention(-1);
-      return;
-    }
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      chooseMention(mentionItems[mentionIndex]);
-      return;
-    }
+    if (event.key === 'ArrowDown') { event.preventDefault(); moveMention(1); return; }
+    if (event.key === 'ArrowUp') { event.preventDefault(); moveMention(-1); return; }
+    if (event.key === 'Enter') { event.preventDefault(); chooseMention(mentionItems[mentionIndex]); return; }
     if (event.key === 'Tab') {
       event.preventDefault();
       if (mentionItems[mentionIndex]) attachMention(mentionItems[mentionIndex]);
       return;
     }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeMention();
-      return;
-    }
+    if (event.key === 'Escape') { event.preventDefault(); closeMention(); return; }
+  }
+
+  if (commandActive()) {
+    if (event.key === 'ArrowDown') { event.preventDefault(); moveCommand(1); return; }
+    if (event.key === 'ArrowUp') { event.preventDefault(); moveCommand(-1); return; }
+    if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); chooseCommand(commandItems[commandIndex]); return; }
+    if (event.key === 'Escape') { event.preventDefault(); closeCommandMenu(); return; }
   }
 
   if (event.key === 'Enter') {
@@ -606,40 +902,45 @@ input.addEventListener('keydown', (event) => {
     const text = input.value.trim();
     input.value = '';
     closeMention();
+    closeCommandMenu();
     if (text.startsWith('/')) runCommand(text);
     else send(text);
   } else if (event.key === 'Escape') {
     closeMention();
-    inputRow.classList.add('hidden');
+    closeCommandMenu();
     input.blur();
-    scheduleFit();
+    setExpanded(false); // collapse back to the mascot
   }
 });
 
-thought.addEventListener('click', () => {
-  thought.classList.toggle('collapsed');
-  scheduleFit();
-});
+function submit() {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  closeMention();
+  closeCommandMenu();
+  if (text.startsWith('/')) runCommand(text);
+  else send(text);
+}
 
-companion.addEventListener('click', () => {
-  inputRow.classList.toggle('hidden');
-  if (!inputRow.classList.contains('hidden')) input.focus();
-  scheduleFit();
-});
+function setSendMode(busy) {
+  sendBtn.classList.toggle('stop', busy);
+  sendBtn.innerHTML = `<i class="fa-solid ${busy ? 'fa-stop' : 'fa-arrow-up'}" aria-hidden="true"></i>`;
+  sendBtn.title = busy ? 'Stop' : 'Send';
+}
 
+sendBtn.addEventListener('click', () => {
+  if (streaming) window.leslie.cancel();
+  else submit();
+});
 mic.addEventListener('click', () => window.leslie.voiceListenOnce());
-
 settingsBtn.addEventListener('click', () => window.leslie.openSettings());
 
-function revealInput() {
-  inputRow.classList.remove('hidden');
-  scheduleFit();
-}
+// --- Voice dictation --------------------------------------------------------
 
 let typingTimer = null;
 function typeText(text, autoSend) {
   if (typingTimer) clearInterval(typingTimer);
-  revealInput();
   input.focus();
   input.value = '';
   let i = 0;
@@ -657,9 +958,9 @@ function typeText(text, autoSend) {
 }
 
 window.leslie.onVoiceWake(({ command }) => {
-  revealInput();
+  setExpanded(true);
   mic.classList.add('listening');
-  if (!command) showBubble('Listening…', { autoHideMs: 4000 });
+  if (!command) setStatus('Listening…');
 });
 
 window.leslie.onVoiceFinal(({ text, autoSend }) => {
@@ -667,24 +968,37 @@ window.leslie.onVoiceFinal(({ text, autoSend }) => {
   if (text && text.trim()) typeText(text.trim(), autoSend !== false);
 });
 
-window.leslie.onVoiceStatus(({ state, message }) => {
+function progressBar(pct) {
+  const width = 14;
+  const filled = Math.max(0, Math.min(width, Math.round((pct / 100) * width)));
+  return `${'█'.repeat(filled)}${'░'.repeat(width - filled)} ${pct}%`;
+}
+
+window.leslie.onVoiceStatus(({ state, message, progress }) => {
   const hearing = state === 'listening' || state === 'transcribing';
   mic.classList.toggle('listening', hearing);
   mic.classList.toggle('off', state === 'off');
   setFlag('listening', hearing);
-  if (state === 'loading') showBubble('Loading speech model…', { autoHideMs: 0 });
-  else if (state === 'error') showBubble(`⚠ voice: ${message || 'error'}`, { autoHideMs: 8000 });
+  if (state === 'loading') {
+    const bar = typeof progress === 'number' ? ` ${progressBar(progress)}` : '';
+    setStatus(`${message || 'Loading speech model…'}${bar}`);
+  } else if (state === 'error') {
+    systemLine(`⚠ voice: ${message || 'error'}`, 'error');
+    setStatus('');
+  } else if (state === 'idle' && !streaming) {
+    setStatus('');
+  }
 });
 
-// Theme accent: applied as a CSS variable; chosen from the details window and
-// synced here so the companion's accents follow the system theme.
+// --- Theme ------------------------------------------------------------------
+
 function applyAccent(color) {
   if (color) document.documentElement.style.setProperty('--accent', color);
 }
 window.leslie.onTheme(applyAccent);
 
 window.addEventListener('DOMContentLoaded', () => {
-  showBubble('Hi, I’m LESLIE — type below to chat.', { autoHideMs: 6000 });
+  systemLine('Hi, I’m LESLIE — type below to chat.');
   input.focus();
   window.leslie.getMode().then(reflectMode);
   window.leslie.getAccent().then(applyAccent);

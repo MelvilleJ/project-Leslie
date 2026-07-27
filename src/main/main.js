@@ -23,9 +23,7 @@ const isDev = process.argv.includes('--dev');
 
 const ROOT = path.join(__dirname, '..', '..');
 
-// Custom scheme that serves uploaded spritesheet PNGs from userData to the
-// renderers. Must be registered as privileged BEFORE the app is ready so it can
-// be used as an <img>/background-image source under a strict CSP.
+// Must register before app is ready to use as <img> source under CSP.
 protocol.registerSchemesAsPrivileged([
   { scheme: 'leslie-sprite', privileges: { standard: true, secure: true, supportFetchAPI: true } }
 ]);
@@ -41,12 +39,15 @@ let settingsWindow = null;
 /** @type {Tray | null} */
 let tray = null;
 
-const WINDOW_WIDTH = 260;
-const WINDOW_HEIGHT = 620;
+// Mascot floats alone (collapsed) or with chat panel (expanded), anchored to right edge.
+const COLLAPSED_WIDTH = 240;
+const EXPANDED_WIDTH = 640;
+const PANEL_HEIGHT = 440;
+const PANEL_MARGIN = 24;
 
-// --- Theme accent ----------------------------------------------------------
-// A single user-chosen accent colour drives the whole UI (--accent in CSS).
-// Persisted, and broadcast live to every window when changed from the picker.
+// Distinguish programmatic setBounds from genuine user drag.
+let lastProgrammaticMove = 0;
+
 const DEFAULT_ACCENT = '#9b7bff';
 const isHex = (c) => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
 
@@ -70,13 +71,12 @@ function setAccent(color) {
 
 function createWindow() {
   const { workArea } = screen.getPrimaryDisplay();
-  const margin = 24;
-  const x = workArea.x + workArea.width - WINDOW_WIDTH - margin;
-  const y = workArea.y + workArea.height - WINDOW_HEIGHT - margin;
+  const x = workArea.x + workArea.width - COLLAPSED_WIDTH - PANEL_MARGIN;
+  const y = workArea.y + workArea.height - PANEL_HEIGHT - PANEL_MARGIN;
 
   companionWindow = new BrowserWindow({
-    width: WINDOW_WIDTH,
-    height: WINDOW_HEIGHT,
+    width: COLLAPSED_WIDTH,
+    height: PANEL_HEIGHT,
     x,
     y,
     frame: false,
@@ -102,12 +102,10 @@ function createWindow() {
     companionWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
-  // Tell the renderer the companion is being dragged so it can play a "moving"
-  // animation. The frameless window is dragged natively (-webkit-app-region:
-  // drag), so the renderer never sees the mouse — this 'move' event is the only
-  // hook. Coalesced to one message per frame.
+  // Filter out programmatic moves (see lastProgrammaticMove) via timestamp.
   let movePending = false;
   companionWindow.on('move', () => {
+    if (Date.now() - lastProgrammaticMove < 250) return;
     if (movePending) return;
     movePending = true;
     setImmediate(() => {
@@ -116,12 +114,20 @@ function createWindow() {
     });
   });
 
+  companionWindow.on('blur', () => toCompanion('window:blur'));
+
   companionWindow.on('closed', () => {
     companionWindow = null;
+    screen.removeListener('display-metrics-changed', redock);
+    screen.removeListener('display-added', redock);
+    screen.removeListener('display-removed', redock);
   });
+
+  screen.on('display-metrics-changed', redock);
+  screen.on('display-added', redock);
+  screen.on('display-removed', redock);
 }
 
-// Push the current animation library + bindings to whichever windows care.
 function broadcastAnimations() {
   const cfg = animations.getConfig();
   for (const w of [companionWindow, settingsWindow]) {
@@ -387,9 +393,6 @@ function firstSentence(text) {
   return (m ? m[0] : t).trim();
 }
 
-// Expand the user's "@" file/folder mentions into a context block the model can
-// read directly: files are read (capped) and folders are listed, reusing the
-// same OS-aware read-only tools the agent itself uses.
 async function buildMentionContext(mentions) {
   if (!Array.isArray(mentions) || !mentions.length) return '';
   const seen = new Set();
@@ -431,62 +434,29 @@ ipcMain.handle('agent:message', async (event, payload) => {
   // Back-compat: payload may be a bare string or { text, mentions }.
   const text = typeof payload === 'string' ? payload : (payload && payload.text) || '';
   const mentions = (payload && payload.mentions) || [];
-  let detailOpen = false;
-  let detailPending = '';
-
-  let summaryBuf = '';
-  let summaryPromoted = false;
-
-  const openDetailText = (chunk) => {
-    const win = showDetailWindow();
-    if (!detailOpen) {
-      win.webContents.send('detail:begin', { question: text });
-      detailOpen = true;
-    }
-    win.webContents.send('detail:chunk', chunk);
-  };
 
   try {
     const mentionContext = await buildMentionContext(mentions);
-    const reply = await agent.sendMessage(text, (ev) => {
+    const { reply, aborted } = await agent.sendMessage(text, (ev) => {
       if (sender.isDestroyed()) return;
       switch (ev.type) {
         case 'thinking':
           sender.send('agent:think', ev.text);
           break;
         case 'summary':
-          summaryBuf += ev.text;
-          if (summaryPromoted) {
-            openDetailText(ev.text);
-          } else if (countSentences(summaryBuf) > config.detailSentenceThreshold) {
-            summaryPromoted = true;
-            openDetailText(summaryBuf);
-            sender.send('agent:to-details', { teaser: firstSentence(summaryBuf) });
-          } else {
-            sender.send('agent:chunk', ev.text);
-          }
-          break;
         case 'details':
-          if (!detailOpen) {
-            detailPending += ev.text;
-            if (detailPending.trim()) {
-              openDetailText(detailPending);
-              detailPending = '';
-            }
-          } else {
-            openDetailText(ev.text);
-          }
+          sender.send('agent:chunk', ev.text);
           break;
         case 'open-url':
-          // Open web pages in the user's real default browser, not the in-app
-          // detail window (handles auth, extensions, sites that block embedding).
           shell.openExternal(ev.url).catch((err) => {
             console.warn('[open-url] openExternal failed:', err && err.message);
           });
           break;
+        case 'set-mode':
+          applyMode(ev.mode);
+          break;
         case 'tool':
-          // A tool call started — let the companion flash a "tool-call" animation.
-          sender.send('agent:tool', ev.name);
+          sender.send('agent:tool', ev);
           break;
         case 'confirm':
           sender.send('agent:confirm', { id: ev.id, message: ev.message });
@@ -494,20 +464,52 @@ ipcMain.handle('agent:message', async (event, payload) => {
       }
     }, mentionContext);
 
-    if (detailOpen && detailWindow && !detailWindow.isDestroyed()) {
-      detailWindow.webContents.send('detail:end');
-    }
-    return summaryPromoted
-      ? { reply, openedInDetails: true, teaser: firstSentence(summaryBuf) }
-      : { reply };
+    return { reply, aborted };
   } catch (err) {
     return { error: err && err.message ? err.message : String(err) };
   }
 });
 
+ipcMain.on('agent:cancel', () => {
+  agent.cancel();
+  if (researchAbort) researchAbort.abort();
+});
+
 ipcMain.handle('agent:reset', () => {
   agent.reset();
   return { ok: true };
+});
+
+// Deep-research bypasses the agent loop to avoid context-window saturation.
+const { research: runResearch } = require('./tools/lib/deepResearch/researcher');
+const { formatReport: formatResearch } = require('./tools/lib/deepResearch/report');
+
+let researchAbort = null;
+
+ipcMain.handle('research:run', async (event, query) => {
+  const sender = event.sender;
+  const q = typeof query === 'string' ? query.trim() : '';
+  if (!q) return { error: 'empty query' };
+  const controller = new AbortController();
+  researchAbort = controller;
+  try {
+    const out = await runResearch(q, {
+      signal: controller.signal,
+      emit: (e) => {
+        if (!sender.isDestroyed()) sender.send('research:progress', e);
+      }
+    });
+    const report = formatResearch(q, out);
+    // Put the finished report into the agent's history so follow-up chat turns
+    // ("make a document from this") can see it — the research flow otherwise
+    // bypasses the agent loop entirely.
+    if (!controller.signal.aborted) agent.recordResearch(q, report);
+    return { report, aborted: controller.signal.aborted };
+  } catch (err) {
+    return { error: err && err.message ? err.message : String(err) };
+  } finally {
+    if (researchAbort === controller) researchAbort = null;
+  }
 });
 
 ipcMain.handle('agent:confirm-response', (_event, { id, approved } = {}) => {
@@ -589,12 +591,9 @@ ipcMain.handle('memory:clear', () => {
 
 ipcMain.handle('sys:sample', () => sysmon.sample());
 
-// Path autocomplete for the companion's "@" file/folder picker.
 ipcMain.handle('fs:suggest', (_event, query) => fsSuggest.suggest(query));
 
-// --- Animations ------------------------------------------------------------
-// Library + state bindings for the companion sprite. Mutations broadcast the
-// fresh config to the companion (and settings) so the change applies live.
+// Sprite animations: mutations broadcast to companion and settings.
 ipcMain.handle('anim:config', () => animations.getConfig());
 
 ipcMain.handle('anim:import', async () => {
@@ -607,8 +606,6 @@ ipcMain.handle('anim:import', async () => {
   if (png.canceled || !png.filePaths[0]) return { cancelled: true };
   const pngPath = png.filePaths[0];
 
-  // Optional: the matching spritesheet.css to auto-derive the grid. Cancel to
-  // enter the grid by hand afterwards.
   const cssPick = await dialog.showOpenDialog(parent, {
     title: 'Choose the matching spritesheet.css (Cancel to enter the grid manually)',
     filters: [{ name: 'CSS', extensions: ['css'] }],
@@ -653,20 +650,30 @@ ipcMain.handle('anim:set-binding', (_event, { state, ids } = {}) => {
 
 ipcMain.on('settings:open', () => showSettingsWindow());
 
-ipcMain.on('window:fit-height', (_event, desiredHeight) => {
-  if (!companionWindow) return;
-  const bounds = companionWindow.getBounds();
-  const { workArea } = screen.getDisplayMatching(bounds);
-  const minH = WINDOW_HEIGHT;
-  const maxH = Math.max(minH, Math.min(workArea.height - 16, 720));
-  const height = Math.round(Math.min(maxH, Math.max(minH, desiredHeight)));
-  if (height === bounds.height) return;
-
-  const bottom = bounds.y + bounds.height;
-  let y = bottom - height;
-  if (y < workArea.y) y = workArea.y;
-  companionWindow.setBounds({ x: bounds.x, y, width: bounds.width, height });
+ipcMain.on('window:set-expanded', (_event, expanded) => {
+  if (!companionWindow || companionWindow.isDestroyed()) return;
+  const b = companionWindow.getBounds();
+  const width = expanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
+  if (b.width === width) return;
+  const right = b.x + b.width;
+  lastProgrammaticMove = Date.now();
+  companionWindow.setBounds({ x: right - width, y: b.y, width, height: b.height });
 });
+
+function redock() {
+  if (!companionWindow || companionWindow.isDestroyed()) return;
+  const b = companionWindow.getBounds();
+  const { workArea } = screen.getDisplayMatching(b);
+  const onScreen =
+    b.x >= workArea.x && b.y >= workArea.y &&
+    b.x + b.width <= workArea.x + workArea.width &&
+    b.y + b.height <= workArea.y + workArea.height;
+  if (onScreen) return;
+  const x = workArea.x + workArea.width - b.width - PANEL_MARGIN;
+  const y = workArea.y + workArea.height - PANEL_HEIGHT - PANEL_MARGIN;
+  lastProgrammaticMove = Date.now();
+  companionWindow.setBounds({ x, y, width: b.width, height: PANEL_HEIGHT });
+}
 
 ipcMain.on('window:hide', () => {
   if (companionWindow) companionWindow.hide();
@@ -689,8 +696,6 @@ ipcMain.on('voice:set-active', (_event, value) => controlVoice('set-active', !!v
 ipcMain.on('voice:listen-once', () => controlVoice('listen-once'));
 
 app.whenReady().then(() => {
-  // Serve uploaded spritesheets: leslie-sprite://clips/<id>.png -> userData file.
-  // basename guards against path traversal in the URL.
   protocol.handle('leslie-sprite', (request) => {
     try {
       const url = new URL(request.url);

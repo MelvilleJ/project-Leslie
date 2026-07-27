@@ -21,13 +21,17 @@ async function run({ query }) {
   }
 
   const data = await res.json();
+  // Cap results on small contexts to avoid crowding out tool schemas.
+  const small = (Number(config.contextTokens) || 4096) < 8192;
+  const count = small ? Math.min(config.searchResults, 3) : config.searchResults;
+  const snipLen = small ? 140 : 300;
   const results = (data.results || [])
-    .slice(0, config.searchResults)
+    .slice(0, count)
     .map((r, i) => ({
       rank: i + 1,
       title: r.title,
       url: r.url,
-      snippet: (r.content || '').replace(/\s+/g, ' ').trim().slice(0, 300)
+      snippet: (r.content || '').replace(/\s+/g, ' ').trim().slice(0, snipLen)
     }));
 
   return {

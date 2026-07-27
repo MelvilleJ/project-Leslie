@@ -24,7 +24,35 @@ let audioCtx = null;
 let micStream = null;
 let sampleRate = 16000;
 
-const status = (state, message) => bridge.status({ state, message });
+const status = (state, message, progress) => bridge.status({ state, message, progress });
+
+// Aggregate transformers.js download events into single 0–100 progress.
+function makeProgress() {
+  const files = new Map();
+  let last = -1;
+  return (e) => {
+    if (!e || !e.file) return;
+    if (typeof e.total === 'number' && e.total > 0) {
+      files.set(e.file, { loaded: e.loaded || 0, total: e.total });
+    }
+    if (e.status === 'done') {
+      const f = files.get(e.file);
+      if (f) f.loaded = f.total;
+    }
+    let loaded = 0;
+    let total = 0;
+    for (const f of files.values()) {
+      loaded += f.loaded;
+      total += f.total;
+    }
+    if (!total) return;
+    const pct = Math.min(100, Math.round((loaded / total) * 100));
+    if (pct !== last) {
+      last = pct;
+      status('loading', 'Loading speech model…', pct);
+    }
+  };
+}
 
 const JUNK = new Set(['', 'you', 'thank you.', 'thanks for watching!', '[blank_audio]', '(silence)']);
 function isJunk(text) {
@@ -32,13 +60,29 @@ function isJunk(text) {
   return t.length < 2 || JUNK.has(t);
 }
 
+// Probe for GPU; fall back to WASM if WebGPU unavailable.
+async function pickDevice() {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.gpu) {
+      const adapter = await navigator.gpu.requestAdapter();
+      if (adapter) return 'webgpu';
+    }
+  } catch {}
+  return 'wasm';
+}
+
 async function getTranscriber() {
   if (transcriber) return transcriber;
-  status('loading', 'Loading speech model…');
+  status('loading', 'Loading speech model…', 0);
+  const device = await pickDevice();
+  const progress_callback = makeProgress();
+  // Use fp32 to avoid quantization issue with MatMulNBits weights.
+  const dtype = 'fp32';
   try {
-    transcriber = await pipeline('automatic-speech-recognition', MODEL, { device: 'webgpu' });
+    transcriber = await pipeline('automatic-speech-recognition', MODEL, { device, dtype, progress_callback });
   } catch (err) {
-    transcriber = await pipeline('automatic-speech-recognition', MODEL, { device: 'wasm' });
+    if (device === 'wasm') throw err;
+    transcriber = await pipeline('automatic-speech-recognition', MODEL, { device: 'wasm', dtype, progress_callback });
   }
   status('idle');
   return transcriber;

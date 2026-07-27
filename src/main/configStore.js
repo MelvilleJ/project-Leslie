@@ -17,8 +17,9 @@ const SCHEMA = [
     help: "LESLIE's persona. Kept short — replies show in a small bubble." },
   { key: 'temperature', type: 'number', group: 'Generation', label: 'Temperature',
     min: 0, max: 2, step: 0.05 },
-  { key: 'maxTokens', type: 'number', group: 'Generation', label: 'Max tokens',
-    min: 16, max: 32768, step: 16 },
+  { key: 'contextTokens', type: 'number', group: 'Generation', label: 'Context window (n_ctx)',
+    min: 512, max: 200000, step: 256,
+    help: "Your model server's context size. Requests are trimmed to fit; the reply uses whatever room is left." },
   { key: 'historyLimit', type: 'number', group: 'Generation', label: 'History messages kept',
     min: 0, max: 200, step: 2, help: 'How many past messages stay in context.' },
 
@@ -79,22 +80,16 @@ function coerce(field, value) {
   }
 }
 
-/** The editable schema (plain data, safe to send over IPC). */
 function schema() {
   return SCHEMA;
 }
 
-/** Current values of every editable field (for populating the form). */
 function snapshot() {
   const out = {};
   for (const f of SCHEMA) out[f.key] = config[f.key];
   return out;
 }
 
-/**
- * Set one field: validate, coerce, apply to the live config, and persist.
- * @returns {{ ok: true, key: string, value: any } | { ok: false, error: string }}
- */
 function set(key, value) {
   const field = BY_KEY.get(key);
   if (!field) return { ok: false, error: `Unknown setting: ${key}` };

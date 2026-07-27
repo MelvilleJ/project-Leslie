@@ -1,24 +1,6 @@
 #!/usr/bin/env python3
-"""Upscale a LESLIE animation spritesheet with Real-ESRGAN.
-
-Pipeline: slice the original frames out of the source sheet, upscale each frame 4x
-with Real-ESRGAN (anime model, preserves alpha), Lanczos-downscale to a target
-character height, repack into a new sheet, and regenerate the matching CSS. The
-result is displayed at native size in the app so there is no blurry runtime scaling.
-
-All animations are scaled to the same TARGET_HEIGHT so LESLIE stays the same size
-when switching between them (idle / thinking / tools / ...).
-
-Each animation lives in assets/animations/<name>/ as spritesheet.png + spritesheet.css.
-The original low-res sheet is snapshotted once to spritesheet.src.png and its grid is
-recorded in spritesheet.src.json, so re-runs always slice from the true source.
-
-Usage:
-    python scripts/build-spritesheet.py <name> [--height N]   # default height 537
-
-Examples:
-    python scripts/build-spritesheet.py tools
-    python scripts/build-spritesheet.py thinking --height 537
+"""Upscale LESLIE animation spritesheet with Real-ESRGAN (4x up, Lanczos down to target height).
+Usage: python scripts/build-spritesheet.py <name> [--height N]
 """
 
 import argparse
@@ -37,12 +19,22 @@ ESRGAN_MODEL = "realesrgan-x4plus-anime"
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ANIM_DIR = os.path.join(ROOT, "assets", "animations")
-EXE = os.path.join(ROOT, "tools", "realesrgan", "realesrgan-ncnn-vulkan.exe")
-MODELS = os.path.join(ROOT, "tools", "realesrgan", "models")
+REALESRGAN_DIR = os.path.join(ROOT, "tools", "realesrgan")
+MODELS = os.path.join(REALESRGAN_DIR, "models")
+
+
+def _find_exe():
+    for name in ("realesrgan-ncnn-vulkan.exe", "realesrgan-ncnn-vulkan"):
+        path = os.path.join(REALESRGAN_DIR, name)
+        if os.path.exists(path):
+            return path
+    return os.path.join(REALESRGAN_DIR, "realesrgan-ncnn-vulkan.exe")
+
+
+EXE = _find_exe()
 
 
 def detect_grid(css_path, sheet):
-    """Read frame size + count from a spritesheet.css and infer the column count."""
     text = open(css_path, encoding="utf-8").read()
     fw = int(re.search(r"width:\s*(\d+)px", text).group(1))
     fh = int(re.search(r"height:\s*(\d+)px", text).group(1))
@@ -52,7 +44,7 @@ def detect_grid(css_path, sheet):
 
 
 def ensure_source(folder):
-    """Return (source Image, grid). First run snapshots the original sheet + grid."""
+    # Snapshot original sheet on first run; re-runs slice from snapshot.
     png = os.path.join(folder, "spritesheet.png")
     src_png = os.path.join(folder, "spritesheet.src.png")
     src_json = os.path.join(folder, "spritesheet.src.json")
@@ -67,7 +59,6 @@ def ensure_source(folder):
             "Restore the original low-res pair or delete both to re-snapshot."
         )
 
-    # First run: the current sheet/css describe the original source.
     sheet = Image.open(png).convert("RGBA")
     grid = detect_grid(os.path.join(folder, "spritesheet.css"), sheet)
     shutil.copy2(png, src_png)

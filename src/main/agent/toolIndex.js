@@ -17,6 +17,10 @@ const KEYWORD_HINTS = [
     ['create_document']
   ],
   [
+    ['save', 'save to', 'save it', 'write to', 'write file', 'write a file', 'save a file', 'note', 'save the', 'put it in', 'store', 'append', 'to a file', 'into a file'],
+    ['write_file', 'create_document']
+  ],
+  [
     ['list', 'directory', 'folder', 'files in', "what's in", 'whats in', 'browse', 'drive', 'drives', 'downloads', 'desktop', 'my documents', 'ls ', 'dir '],
     ['list_directory']
   ],
@@ -27,6 +31,10 @@ const KEYWORD_HINTS = [
   [
     ['document', 'read the document', 'read my', 'open the document', 'word doc', 'word document', '.docx', 'pdf', '.pdf', 'spreadsheet', 'excel', '.xlsx', '.xls', 'summari', 'what does', 'says', 'resume', 'report', 'invoice', 'contract', 'paper'],
     ['read_document']
+  ],
+  [
+    ['mode', 'agent mode', 'plan mode', 'chat mode', 'switch to', 'go into', 'read-only', 'read only'],
+    ['set_mode']
   ]
 ];
 

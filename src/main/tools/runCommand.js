@@ -5,6 +5,7 @@ const config = require('../config');
 
 module.exports = {
   name: 'run_command',
+  selfGates: true,
   get description() {
     const shell = config.osTarget === 'linux' ? 'bash' : 'PowerShell';
     return (

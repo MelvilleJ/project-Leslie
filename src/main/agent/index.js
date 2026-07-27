@@ -6,6 +6,7 @@ const conversations = require('../conversations');
 const { FORMAT_INSTRUCTIONS } = require('./streamTurn');
 const { runConversation } = require('./loop');
 const { extractMemories } = require('./reflect');
+const compaction = require('./compaction');
 
 /** @type {{ role: string, content: string }[]} */
 let history = [];
@@ -21,9 +22,16 @@ function resolveConfirm(id, approved) {
   if (done) done(Boolean(approved));
 }
 
-function makeCtx(onEvent) {
+let currentAbort = null;
+function cancel() {
+  if (currentAbort) currentAbort.abort();
+}
+
+function makeCtx(onEvent, signal) {
   return {
+    signal,
     openUrl: (url) => onEvent({ type: 'open-url', url }),
+    setMode: (mode) => onEvent({ type: 'set-mode', mode }),
     confirm: (message) =>
       new Promise((resolve) => {
         const id = `c${++confirmSeq}`;
@@ -71,7 +79,9 @@ function agentCapabilities() {
   const { os, shell } = osFacts();
   return [
     `AGENT MODE IS ON. You are running on the user's ${os} PC and have tools that REALLY execute here:`,
-    `run_command (${shell}), install_software, open_app, open_url, web_search, deep_search,`,
+    `run_command (${shell}), install_software, open_app, open_url, web_search, deep_search, deep_research`,
+    '(iterative multi-round research with a long cited report — slow, use only when the user wants',
+    'thorough research, not for quick facts),',
     'create_document (make a real Word/PDF/Excel/text file and open it).',
     fsClause(true),
     'When the user asks you to DO something on their computer — clone a repo, create/move/delete files,',
@@ -79,18 +89,21 @@ function agentCapabilities() {
     'NOT just print the command, and do NOT claim you are sandboxed or separated from their system: you are',
     'not. Your tools run on their machine. Safe/allowlisted commands run immediately; anything else shows the',
     `user an Approve/Deny prompt before it runs, so it is always safe to attempt the call. Use ${shell} syntax,`,
-    'then report what actually happened from the tool output.'
+    'then report what actually happened from the tool output.',
+    'You can also switch your own mode with set_mode (chat/plan/agent) when the user asks or a task needs it.'
   ].filter(Boolean).join(' ');
 }
 
 function chatCapabilities() {
   return [
     'You have tools that really work — call them instead of describing them: web_search and deep_search to',
-    'look things up, open_url to show a page, open_app to launch an app, and create_document to make a real',
+    'look things up, deep_research for thorough multi-source research when the user wants a long, cited',
+    'report (it is slow — a few minutes — so only use it when that depth is actually wanted), open_url to',
+    'show a page, open_app to launch an app, and create_document to make a real',
     `Word/PDF/Excel/text file and open it. ${fsClause(false)}`,
     'You cannot run shell commands or install software in this mode.',
-    'If the user asks for a system task that needs that (e.g. cloning a repo or installing something), tell',
-    'them to switch to Agent mode (the 🤖 button) rather than refusing.'
+    'If the user asks for a system task that needs that (e.g. cloning a repo or installing something), you can',
+    'switch yourself with set_mode ("agent") — or tell them to use the 🤖 button — rather than refusing.'
   ].filter(Boolean).join(' ');
 }
 
@@ -116,13 +129,26 @@ async function sendMessage(text, onEvent, contextText) {
   // history — keeping the transcript readable and within the history window.
   const userContent = contextText ? `${contextText}\n\n${text}` : text;
 
+  history = await compaction.maybeCompact(history);
+
   const messages = [
     { role: 'system', content: systemContent },
     ...history,
     { role: 'user', content: userContent }
   ];
 
-  const { summary, details } = await runConversation(messages, onEvent, makeCtx(onEvent), text);
+  const controller = new AbortController();
+  currentAbort = controller;
+  let summary = '';
+  let details = '';
+  let aborted = false;
+  try {
+    ({ summary, details, aborted } = await runConversation(
+      messages, onEvent, makeCtx(onEvent, controller.signal), text, controller.signal
+    ));
+  } finally {
+    if (currentAbort === controller) currentAbort = null;
+  }
 
   const stored = [summary.trim(), details.trim()].filter(Boolean).join('\n\n') || summary;
   history.push({ role: 'user', content: text }, { role: 'assistant', content: stored });
@@ -140,7 +166,24 @@ async function sendMessage(text, onEvent, contextText) {
     extractMemories(history.slice()).catch(() => {});
   }
 
-  return summary.trim();
+  return { reply: summary.trim(), aborted };
+}
+
+/**
+ * Record a completed /research run into the conversation history so follow-up
+ * chat turns ("make a document from this") can see it. The dedicated research
+ * flow bypasses the agent loop, so without this the report never enters history.
+ */
+function recordResearch(query, reportText) {
+  const stored = String(reportText || '').trim();
+  if (!stored) return;
+  const userText = `[Deep research] ${query}`;
+  history.push({ role: 'user', content: userText }, { role: 'assistant', content: stored });
+  if (history.length > config.historyLimit) history = history.slice(history.length - config.historyLimit);
+  try {
+    conversations.appendExchange(userText, stored);
+  } catch {
+  }
 }
 
 /** Forget the conversation so far (and start a fresh transcript). */
@@ -168,4 +211,4 @@ function resume(id) {
   return true;
 }
 
-module.exports = { sendMessage, reset, resolveConfirm, resume };
+module.exports = { sendMessage, reset, resolveConfirm, resume, cancel, recordResearch };

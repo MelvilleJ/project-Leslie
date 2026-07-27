@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Lock down what the renderer is allowed to load. -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; img-src 'self' leslie-sprite:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src https://cdnjs.cloudflare.com; script-src 'self';" />
   <title>LESLIE</title>
@@ -15,36 +14,34 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div id="stage">
-    <div id="thought" class="thought hidden" title="Click to collapse / expand">
-      <div id="thought-text"></div>
-    </div>
+  <div id="panel">
+    <section id="chat">
+      <main id="transcript" aria-live="polite"></main>
 
-    <div id="bubble" class="bubble hidden">
-      <div id="bubble-text"></div>
-    </div>
-
-    <div id="confirm" class="bubble confirm hidden">
-      <div id="confirm-text"></div>
-      <div id="confirm-actions">
-        <button id="confirm-yes" type="button">Approve</button>
-        <button id="confirm-no" type="button">Deny</button>
+      <div id="composer">
+        <div id="mention-menu" class="hidden" role="listbox"></div>
+        <div id="command-menu" class="hidden" role="listbox"></div>
+        <div id="input-row">
+          <input id="input" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="Say something… (@ files, /help)" />
+          <div id="input-actions">
+            <button id="agent-toggle" title="Mode: click to switch (Chat → Plan → Agent)"><i class="fa-solid fa-comment" aria-hidden="true"></i></button>
+            <button id="mic" title="Dictate (push to talk)"><i class="fa-solid fa-microphone" aria-hidden="true"></i></button>
+            <button id="settings-btn" title="Settings &amp; past conversations"><i class="fa-solid fa-gear" aria-hidden="true"></i></button>
+            <button id="send-btn" title="Send"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
+          </div>
+        </div>
       </div>
-    </div>
+    </section>
 
-    <div id="companion" class="sprite"></div>
-
-    <div id="input-row">
-      <!-- "@" file/folder picker: populated and toggled from renderer.js. -->
-      <div id="mention-menu" class="hidden" role="listbox"></div>
-      <input id="input" type="text" autocomplete="off" spellcheck="false"
-             placeholder="Say something… (@ for files, /help)" />
-      <button id="agent-toggle" title="Mode: click to switch (Chat → Plan → Agent)"><i class="fa-solid fa-comment" aria-hidden="true"></i></button>
-      <button id="mic" title="Dictate (push to talk)"><i class="fa-solid fa-microphone" aria-hidden="true"></i></button>
-      <button id="settings-btn" title="Settings &amp; past conversations"><i class="fa-solid fa-gear" aria-hidden="true"></i></button>
-    </div>
+    <aside id="stage">
+      <div id="avatar" class="sprite"></div>
+      <div id="status"></div>
+    </aside>
   </div>
 
+  <script src="markdown.js"></script>
+  <script src="researchSynapse.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

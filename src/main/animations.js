@@ -1,38 +1,24 @@
 'use strict';
 
-// Animation library + state bindings for the companion sprite.
-//
-// Two parts, persisted together as one JSON file in userData (modelled on
-// conversations.js / memory.js — in-memory cache + best-effort I/O):
-//   clips    — the animation library. UPLOADED clips have their PNG copied into
-//              userData/animations/<id>.png; BUILT-IN clips reference the sheets
-//              that ship in assets/animations/ and are always injected (never
-//              stored, never deletable) so the companion animates out of the box.
-//   bindings — state -> [clipId, …]. `idle` may hold several (the renderer
-//              rotates between them); other states use the first bound clip.
-//
-// The renderer reads getConfig() once and on every 'animations:changed'
-// broadcast, then resolves the active state to a clip and plays it.
+// Animation library + state bindings (clips + bindings persisted in userData).
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { app } = require('electron');
 
-// Bindable character states, highest priority first (the renderer mirrors this).
 const STATES = ['toolCall', 'longThink', 'thinking', 'talking', 'listening', 'moving', 'idle'];
 
-// Built-in clips reference the bundled sheets by folder name; the renderer maps
-// `builtin:true` to ../../assets/animations/<sheet>/spritesheet.png.
 const BUILTINS = [
   { id: 'builtin:idle', name: 'Idle (built-in)', builtin: true, sheet: 'idle',
     frameW: 228, frameH: 537, cols: 4, frames: 25, frameMs: 140 },
   { id: 'builtin:thinking', name: 'Thinking (built-in)', builtin: true, sheet: 'thinking',
-    frameW: 247, frameH: 537, cols: 4, frames: 12, frameMs: 140 }
+    frameW: 247, frameH: 537, cols: 4, frames: 12, frameMs: 140 },
+  { id: 'builtin:talking', name: 'Talking (built-in)', builtin: true, sheet: 'talking',
+    frameW: 211, frameH: 537, cols: 4, frames: 28, frameMs: 140 }
 ];
 
 const EDITABLE = ['name', 'frameW', 'frameH', 'cols', 'frames', 'frameMs'];
 
-/** @type {{ clips: object[], bindings: Record<string, string[]> } | null} */
 let cache = null;
 let seq = 0;
 
@@ -40,7 +26,6 @@ function file() {
   return path.join(app.getPath('userData'), 'leslie-animations.json');
 }
 
-/** Directory holding uploaded spritesheet PNGs (served via leslie-sprite://). */
 function clipsDir() {
   return path.join(app.getPath('userData'), 'animations');
 }
@@ -68,11 +53,10 @@ function persist() {
 }
 
 function defaultBindings() {
-  return { idle: ['builtin:idle'], thinking: ['builtin:thinking'],
-    longThink: [], toolCall: [], talking: [], listening: [], moving: [] };
+  return { idle: ['builtin:idle'], thinking: ['builtin:thinking'], talking: ['builtin:talking'],
+    longThink: [], toolCall: [], listening: [], moving: [] };
 }
 
-// Resolve stored bindings over the defaults, dropping ids that no longer exist.
 function effectiveBindings() {
   const data = load();
   const known = new Set([...BUILTINS.map((c) => c.id), ...data.clips.map((c) => c.id)]);

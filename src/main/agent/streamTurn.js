@@ -3,13 +3,8 @@
 const config = require('../config');
 
 const FORMAT_INSTRUCTIONS = [
-  'Structure every reply like this:',
-  '<summary>One or two short sentences that answer directly.</summary>',
-  'When the question genuinely warrants depth (explanations, steps, examples, comparisons, code), also append:',
-  '<details>',
-  'A thorough, well-structured answer in markdown.',
-  '</details>',
-  'Omit the <details> block entirely for simple questions. Never mention these tags to the user.'
+  'Structure replies: <summary>one or two sentences</summary><details>thorough answer in markdown</details>',
+  'Omit <details> for simple questions. Never mention these tags to the user.'
 ].join('\n');
 
 const MARKERS = [
@@ -30,16 +25,6 @@ function partialSuffix(s, marker) {
   return 0;
 }
 
-/**
- * Stream one model turn. Emits onEvent({type, text}) live for the
- * thinking/summary/details channels, and resolves with the turn's summary +
- * details text, the raw content, and any native tool calls it requested.
- *
- * @param {{role:string, content?:string}[]} messages
- * @param {(event:{type:string, text?:string}) => void} onEvent
- * @param {{ tools?: object[] }} [opts] tool specs to advertise this turn (omit/empty = none)
- * @returns {Promise<{summary:string, details:string, rawContent:string, toolCalls:object[]}>}
- */
 async function streamTurn(messages, onEvent, opts = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
@@ -48,9 +33,9 @@ async function streamTurn(messages, onEvent, opts = {}) {
     model: config.model,
     messages,
     stream: true,
-    temperature: config.temperature,
-    max_tokens: config.maxTokens
+    temperature: config.temperature
   };
+  if (opts.maxTokens && opts.maxTokens > 0) body.max_tokens = opts.maxTokens;
   const specs = opts.tools || [];
   if (config.toolsEnabled && specs.length) {
     body.tools = specs;
@@ -60,7 +45,8 @@ async function streamTurn(messages, onEvent, opts = {}) {
   const res = await fetch(`${config.baseURL}/chat/completions`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: opts.signal
   });
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => '');
