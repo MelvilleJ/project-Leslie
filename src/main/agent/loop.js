@@ -19,13 +19,16 @@ function askMessage(name, detail) {
 
 function toolDetail(name, args) {
   if (name === 'web_search' || name === 'deep_search' || name === 'open_search') return args.query ?? '';
+  if (name === 'grep' || name === 'find') return args.pattern ?? '';
   if (name === 'open_url') return args.url ?? '';
-  if (name === 'open_app') return args.app ?? '';
-  if (name === 'run_command') return args.command ?? '';
+  if (name === 'open_app' || name === 'close_app') return args.app ?? '';
+  if (name === 'run_command' || name === 'bash') return args.command ?? '';
   if (name === 'install_software') return args.id || args.name || '';
   if (name === 'create_document') return `${args.filename ?? 'document'}.${args.format ?? 'txt'}`;
   if (name === 'remember') return args.text ?? '';
-  if (name === 'read_file' || name === 'read_document' || name === 'list_directory') {
+  if (name === 'screen_record' || name === 'model_profile') return args.action ?? '';
+  if (name === 'screenshot') return args.target ?? 'main';
+  if (['read_file', 'read_document', 'list_directory', 'read', 'write', 'edit', 'ls'].includes(name)) {
     return args.path ?? args.filename ?? args.dir ?? '';
   }
   try {
@@ -218,4 +221,4 @@ async function runConversation(messages, onEvent, ctx, userText, signal) {
   return { summary: summary || '(stopped after too many tool calls)', details };
 }
 
-module.exports = { runConversation };
+module.exports = { runConversation, toolDetail };

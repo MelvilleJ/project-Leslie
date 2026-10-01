@@ -14,7 +14,12 @@ const BUILTINS = [
   { id: 'builtin:thinking', name: 'Thinking (built-in)', builtin: true, sheet: 'thinking',
     frameW: 247, frameH: 537, cols: 4, frames: 12, frameMs: 140 },
   { id: 'builtin:talking', name: 'Talking (built-in)', builtin: true, sheet: 'talking',
-    frameW: 211, frameH: 537, cols: 4, frames: 28, frameMs: 140 }
+    frameW: 211, frameH: 537, cols: 4, frames: 28, frameMs: 140 },
+  ...[['idle', 12], ['talking', 10], ['thinking', 8], ['tools', 8], ['listening', 8], ['moving', 10]]
+    .map(([name, frames]) => ({
+      id: `builtin:pixel-${name}`, name: `Pixel ${name} (built-in)`, builtin: true, pixelArt: true,
+      sheet: `pixel/${name}`, frameW: 288, frameH: 560, cols: 4, frames, frameMs: 140
+    }))
 ];
 
 const EDITABLE = ['name', 'frameW', 'frameH', 'cols', 'frames', 'frameMs'];

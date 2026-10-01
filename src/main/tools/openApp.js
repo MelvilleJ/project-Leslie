@@ -1,6 +1,9 @@
 'use strict';
 
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const linuxApps = require('./lib/linuxApps');
 
 const ALIASES = {
   calculator: { win: 'calc', mac: 'Calculator', linux: 'gnome-calculator' },
@@ -68,20 +71,56 @@ function launch(command, args) {
   });
 }
 
+function onPath(bin) {
+  return (process.env.PATH || '').split(path.delimiter).some((dir) => {
+    try {
+      fs.accessSync(path.join(dir, bin), fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+// Installed apps and Steam games by name first; then the aliases / a command on PATH.
+async function launchLinux(requested, key) {
+  const { match, candidates } = linuxApps.find(requested);
+  if (match) {
+    const [bin, args] = linuxApps.launchCommand(match);
+    await launch(bin, args);
+    return { opened: match.name, via: match.kind === 'steam' ? `Steam (app ${match.appid})` : `${match.id}.desktop` };
+  }
+  if (candidates.length) {
+    return {
+      opened: null,
+      note: `"${requested}" matches several installed apps — ask the user which one, then call open_app with its exact name.`,
+      candidates: candidates.map((c) => c.name)
+    };
+  }
+  const mapped = ALIASES[key];
+  const target = (mapped && mapped.linux) || requested;
+  const [bin, ...rest] = target.split(' ');
+  if (!onPath(bin)) {
+    throw new Error(`No installed app or Steam game matches "${requested}". Ask the user for the exact name.`);
+  }
+  await launch(bin, rest);
+  return { opened: requested, launched: target };
+}
+
 module.exports = {
   name: 'open_app',
   description:
-    "Launch a desktop application on the user's computer. Use when the user asks to " +
-    'open, start, launch, or run a program or app (e.g. "open the calculator", ' +
-    '"launch Spotify", "start notepad"). Pass the common name of the app.',
+    "Launch a desktop application or installed game on the user's computer. Use when the user asks to " +
+    'open, start, launch, play, or run a program, app, or game (e.g. "open the calculator", ' +
+    '"launch Spotify", "play Warframe"). Pass the name as the user said it; installed Steam games ' +
+    'and desktop apps are matched by name.',
   parameters: {
     type: 'object',
     properties: {
       app: {
         type: 'string',
         description:
-          'The application to open, by common name or executable, e.g. "calculator", ' +
-          '"Spotify", "notepad", "chrome".'
+          'The application or game to open, by name, e.g. "calculator", "Spotify", "Warframe".'
       }
     },
     required: ['app']
@@ -90,6 +129,8 @@ module.exports = {
     if (!app || !String(app).trim()) throw new Error('app is required');
     const requested = String(app).trim();
     const key = requested.toLowerCase().replace(/\s+/g, ' ');
+    if (process.platform === 'linux') return launchLinux(requested, key);
+
     const mapped = ALIASES[key];
     const target = (mapped && mapped[platformKey()]) || requested;
 
@@ -97,9 +138,6 @@ module.exports = {
       await launch('cmd.exe', ['/c', 'start', '', target]);
     } else if (process.platform === 'darwin') {
       await launch('open', ['-a', target]);
-    } else {
-      const [bin, ...rest] = target.split(' ');
-      await launch(bin, rest);
     }
 
     return { opened: requested, launched: target };

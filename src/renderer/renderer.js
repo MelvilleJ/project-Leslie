@@ -11,6 +11,10 @@ const agentToggle = document.getElementById('agent-toggle');
 const settingsBtn = document.getElementById('settings-btn');
 const mentionMenu = document.getElementById('mention-menu');
 const commandMenu = document.getElementById('command-menu');
+const attachmentsEl = document.getElementById('attachments');
+
+// 'pi' when pi drives the agent (Leslie is its GUI); 'native' for the built-in loop.
+let engine = 'native';
 
 let expanded = false;
 let pendingConfirms = 0;
@@ -120,6 +124,7 @@ function playClip(clip) {
   frame = 0;
   avatar.style.backgroundImage = `url('${clipSheetUrl(clip)}')`;
   avatar.style.backgroundRepeat = 'no-repeat';
+  avatar.style.imageRendering = clip.pixelArt ? 'pixelated' : '';
   avatar.style.width = `${clip.frameW}px`;
   avatar.style.height = `${clip.frameH}px`;
   drawFrame(clip, 0);
@@ -227,12 +232,20 @@ function setStatus(text) {
   statusLine.textContent = text || '';
 }
 
-function appendUser(text) {
+function appendUser(text, { tag, images } = {}) {
   const el = document.createElement('div');
   el.className = 'msg user';
-  el.textContent = text;
+  if (tag) {
+    el.classList.add('queued');
+    const t = document.createElement('span');
+    t.className = 'queued-tag';
+    t.textContent = tag;
+    el.appendChild(t);
+  }
+  el.appendChild(document.createTextNode(text + (images ? `${text ? ' ' : ''}🖼×${images}` : '')));
   transcript.appendChild(el);
   scrollToBottom(true);
+  return el;
 }
 
 function systemLine(text, kind) {
@@ -297,6 +310,22 @@ function appendBody(delta) {
   scrollToBottom();
 }
 
+// A queued steer/follow-up was delivered mid-run: close this reply and continue
+// in a new bubble below the user's message so the transcript stays in order.
+function splitAssistant() {
+  const bubble = queuedBubbles.shift();
+  if (!bubble) return;
+  markDelivered(bubble);
+  if (!current) return;
+  finishAssistant(current.raw);
+  beginAssistant();
+  bubble.after(current.el);
+}
+
+window.leslie.onUserMessageDelivered(() => {
+  if (streaming && queuedBubbles.length) splitAssistant();
+});
+
 function finishAssistant(reply) {
   if (!current) return;
   // Freeze any still-running synapse timers (normally the tool 'end' event does
@@ -328,8 +357,52 @@ const TOOL_ICON = {
   read_file: 'fa-file-lines', read_document: 'fa-file-lines', list_directory: 'fa-folder',
   write_file: 'fa-file-pen', run_subagent: 'fa-diagram-project',
   set_mode: 'fa-toggle-on',
-  remember: 'fa-brain'
+  remember: 'fa-brain',
+  bash: 'fa-terminal', read: 'fa-file-lines', write: 'fa-file-pen', edit: 'fa-pen-to-square',
+  grep: 'fa-magnifying-glass', find: 'fa-magnifying-glass', ls: 'fa-folder',
+  $: 'fa-terminal', '$ (private)': 'fa-terminal',
+  screen_record: 'fa-video', screenshot: 'fa-camera', close_app: 'fa-xmark',
+  model_profile: 'fa-microchip'
 };
+
+/** A tool row plus a collapsible output pane underneath (filled as output arrives). */
+function createToolCard(container, { name, detail }) {
+  const card = document.createElement('div');
+  card.className = 'tool-card running';
+  const icon = TOOL_ICON[name] || 'fa-wrench';
+  card.innerHTML =
+    `<i class="fa-solid ${icon} tc-icon" aria-hidden="true"></i>` +
+    `<span class="tc-name"></span>` +
+    `<span class="tc-detail"></span>` +
+    `<i class="fa-solid fa-spinner tc-status" aria-hidden="true"></i>`;
+  card.querySelector('.tc-name').textContent = name;
+  card.querySelector('.tc-detail').textContent = detail || '';
+  card.title = detail || '';
+  const output = document.createElement('pre');
+  output.className = 'tc-output hidden';
+  card.addEventListener('click', () => {
+    if (!output.textContent) return;
+    card.classList.toggle('open');
+    output.classList.toggle('hidden');
+  });
+  container.append(card, output);
+  card.output = output;
+  return card;
+}
+
+function setToolOutput(card, text) {
+  if (!card || !text) return;
+  card.output.textContent = text;
+  card.classList.add('has-output');
+  if (card.classList.contains('open')) card.output.scrollTop = card.output.scrollHeight;
+}
+
+function settleToolCard(card, ok, title) {
+  card.classList.remove('running');
+  card.classList.add(ok ? 'done' : 'failed');
+  if (title) card.querySelector('.tc-detail').textContent = title;
+  card.querySelector('.tc-status').className = `fa-solid ${ok ? 'fa-check' : 'fa-xmark'} tc-status`;
+}
 
 function toolCardStart({ id, name, detail }) {
   if (!current) return;
@@ -343,22 +416,12 @@ function toolCardStart({ id, name, detail }) {
     scrollToBottom();
     return;
   }
-  const card = document.createElement('div');
-  card.className = 'tool-card running';
-  const icon = TOOL_ICON[name] || 'fa-wrench';
-  card.innerHTML =
-    `<i class="fa-solid ${icon} tc-icon" aria-hidden="true"></i>` +
-    `<span class="tc-name"></span>` +
-    `<span class="tc-detail"></span>` +
-    `<i class="fa-solid fa-spinner tc-status" aria-hidden="true"></i>`;
-  card.querySelector('.tc-name').textContent = name;
-  card.querySelector('.tc-detail').textContent = detail || '';
-  current.tools.appendChild(card);
+  const card = createToolCard(current.tools, { name, detail });
   if (id) current.cards.set(id, card);
   scrollToBottom();
 }
 
-function toolCardEnd({ id, ok, title }) {
+function toolCardEnd({ id, ok, title, output }) {
   const synapse = current && id ? current.synapses.get(id) : null;
   if (synapse) {
     if (ok) synapse.complete();
@@ -367,11 +430,8 @@ function toolCardEnd({ id, ok, title }) {
   }
   const card = current && id ? current.cards.get(id) : null;
   if (!card) return;
-  card.classList.remove('running');
-  card.classList.add(ok ? 'done' : 'failed');
-  if (title) card.querySelector('.tc-detail').textContent = title;
-  const status = card.querySelector('.tc-status');
-  status.className = `fa-solid ${ok ? 'fa-check' : 'fa-xmark'} tc-status`;
+  settleToolCard(card, ok, title);
+  setToolOutput(card, output);
 }
 
 // Map a deep_research progress event onto the synapse's controls.
@@ -425,6 +485,10 @@ window.leslie.onToolCall((ev) => {
     setFlag('toolCall', false);
     return;
   }
+  if (ev.phase === 'output') {
+    setToolOutput(current && current.cards.get(ev.id), ev.output);
+    return;
+  }
   if (ev.phase === 'progress') {
     toolCardProgress(ev);
     setStatus(ev.detail || `Running ${ev.name}…`);
@@ -435,16 +499,43 @@ window.leslie.onToolCall((ev) => {
   toolCardStart(ev);
 });
 
-async function send(text) {
+// Messages typed while pi is working, waiting to be delivered (oldest first).
+const queuedBubbles = [];
+
+async function queueMessage(text, followUp) {
+  const bubble = appendUser(text, { tag: followUp ? 'follow-up — after LESLIE finishes' : 'steer — after the current step' });
+  queuedBubbles.push(bubble);
+  const res = await window.leslie.pi(followUp ? 'followUp' : 'steer', { text });
+  if (!res.ok) {
+    queuedBubbles.splice(queuedBubbles.indexOf(bubble), 1);
+    bubble.remove();
+    systemLine(`⚠ ${res.error}`, 'error');
+  }
+}
+
+function markDelivered(bubble) {
+  bubble.classList.remove('queued');
+  const tag = bubble.querySelector('.queued-tag');
+  if (tag) tag.remove();
+}
+
+async function send(text, { followUp = false } = {}) {
   text = text.trim();
-  if (!text || streaming) return;
+  const images = takeImages();
+  if (!text && !images.length) return;
+  if (streaming) {
+    // A task runs outside the chat session, so there's nothing to steer.
+    if (mode === 'assistant') systemLine('Wait for this task to finish, or press Esc to stop it.');
+    else if (engine === 'pi') queueMessage(text, followUp);
+    return;
+  }
 
   // Only keep "@" mentions whose path still appears in the message.
   const mentions = pendingMentions.filter((m) => text.includes(m.path));
   pendingMentions = [];
 
   setExpanded(true);
-  appendUser(text);
+  appendUser(text, { images: images.length });
   streaming = true;
   setSendMode(true);
   startThinking();
@@ -453,7 +544,7 @@ async function send(text) {
 
   let res;
   try {
-    res = await window.leslie.sendMessage(text, mentions);
+    res = await window.leslie.sendMessage(text, mentions, images);
   } catch (err) {
     res = { error: err && err.message ? err.message : String(err) };
   }
@@ -461,6 +552,7 @@ async function send(text) {
   setSendMode(false);
   endTurn();
   setStatus('');
+  while (queuedBubbles.length) markDelivered(queuedBubbles.shift());
 
   if (res && res.error) {
     finishAssistant('');
@@ -555,11 +647,16 @@ window.leslie.onConfirm(({ id, message }) => {
   no.addEventListener('click', () => answer(false));
 });
 
-const MODES = ['chat', 'plan', 'agent'];
+const MODES = ['chat', 'plan', 'agent', 'assistant'];
 const MODE_META = {
   chat: { icon: 'fa-comment', label: 'Chat', say: '💬 Chat mode — just conversation.' },
   plan: { icon: 'fa-clipboard-list', label: 'Plan', say: "📋 Plan mode — I'll investigate read-only and propose a plan." },
-  agent: { icon: 'fa-robot', label: 'Agent', say: '🤖 Agent mode — I can run commands.' }
+  agent: { icon: 'fa-robot', label: 'Agent', say: '🤖 Agent mode — I can run commands.' },
+  assistant: {
+    icon: 'fa-bolt',
+    label: 'Assistant',
+    say: "⚡ Assistant mode — each message is a one-off task. I do it and forget it; nothing carries over."
+  }
 };
 let mode = 'chat';
 
@@ -569,7 +666,8 @@ function reflectMode(next) {
   agentToggle.innerHTML = `<i class="fa-solid ${meta.icon}" aria-hidden="true"></i>`;
   agentToggle.dataset.mode = mode;
   agentToggle.classList.toggle('on', mode !== 'chat');
-  agentToggle.title = `Mode: ${meta.label} — click to switch (Chat → Plan → Agent)`;
+  agentToggle.title = `Mode: ${meta.label} — click to switch (Chat → Plan → Agent → Assistant)`;
+  setSendMode(streaming);
 }
 
 async function setMode(next, { announce = true } = {}) {
@@ -605,6 +703,9 @@ const COMMANDS = {
   },
   mic: () => COMMANDS.listen(),
   settings: () => window.leslie.openSettings(),
+  everyday: () => switchProfile('everyday'),
+  power: () => switchProfile('power'),
+  server: () => window.leslie.openSettings('server'),
   voice: (arg) => {
     const on = !/^(off|0|false|stop|no)$/i.test(arg.trim());
     window.leslie.setVoiceActive(on);
@@ -613,7 +714,7 @@ const COMMANDS = {
   mode: (arg) => {
     const m = arg.trim().toLowerCase();
     if (MODES.includes(m)) setMode(m);
-    else systemLine('Usage: /mode chat|plan|agent');
+    else systemLine('Usage: /mode chat|plan|agent|assistant');
   },
   plan: (arg) => {
     const off = /^(off|0|false|stop|no)$/i.test(arg.trim());
@@ -623,22 +724,33 @@ const COMMANDS = {
     const off = /^(off|0|false|stop|no)$/i.test(arg.trim());
     setMode(off ? 'chat' : 'agent');
   },
+  assistant: (arg) => {
+    const off = /^(off|0|false|stop|no)$/i.test(arg.trim());
+    setMode(off ? 'chat' : 'assistant');
+  },
   research: (arg) => {
     const q = (arg || '').trim();
-    if (q) runResearchFlow(q);
-    else systemLine('Usage: /research <question> — deep, multi-source research with a cited report.');
+    if (!q) systemLine('Usage: /research <question> — deep, multi-source research with a cited report.');
+    // On pi the deep_research tool runs on pi's model, inside the session.
+    else if (engine === 'pi') send(`Use the deep_research tool to research: ${q}`);
+    else runResearchFlow(q);
   },
-  help: () =>
-    systemLine('Commands: /research <q>, /hide, /close, /reset, /settings, /voice on|off, /mode chat|plan|agent, /plan, /agent on|off, /listen, /help')
+  help: () => {
+    const names = visibleCommands().map((c) => `/${c.name}`);
+    systemLine(`Commands: ${names.join(', ')}${engine === 'pi' ? ' · !cmd runs a shell command (!!cmd keeps it private)' : ''}`);
+  }
 };
 
 function runCommand(raw) {
   const parts = raw.slice(1).trim().split(/\s+/);
   const name = parts[0].toLowerCase();
   const arg = parts.slice(1).join(' ');
+  if (engine === 'pi' && PI_COMMANDS[name]) return PI_COMMANDS[name](arg);
   const command = COMMANDS[name];
-  if (command) command(arg);
-  else systemLine(`Unknown command: /${name}`, 'error');
+  if (command) return command(arg);
+  // Prompt templates, skills and extension commands are expanded by pi itself.
+  if (engine === 'pi' && piCommands.some((c) => c.name === parts[0])) return send(raw);
+  systemLine(`Unknown command: /${parts[0]}`, 'error');
 }
 
 // --- "@" file / folder picker -----------------------------------------------
@@ -763,11 +875,30 @@ function chooseMention(item) {
 // --- "/" command palette ----------------------------------------------------
 // Type "/" at the start of the input to open a filterable list of commands,
 // mirroring the "@" file finder. Selecting completes "/name " into the input.
+const PI_COMMAND_META = [
+  { name: 'model', usage: '/model [search]', desc: 'Switch model or profile' },
+  { name: 'thinking', usage: '/thinking [level]', desc: 'Set thinking level' },
+  { name: 'compact', usage: '/compact [focus]', desc: 'Summarize older context now' },
+  { name: 'new', usage: '/new', desc: 'Start a new session' },
+  { name: 'resume', usage: '/resume', desc: 'Open a previous session' },
+  { name: 'name', usage: '/name <name>', desc: 'Name this session' },
+  { name: 'session', usage: '/session', desc: 'Tokens, cost and context for this session' },
+  { name: 'fork', usage: '/fork', desc: 'Branch from an earlier message' },
+  { name: 'clone', usage: '/clone', desc: 'Duplicate this session' },
+  { name: 'copy', usage: '/copy', desc: 'Copy the last reply' },
+  { name: 'export', usage: '/export', desc: 'Export this session to HTML' },
+  { name: 'autocompact', usage: '/autocompact on|off', desc: 'Toggle automatic compaction' },
+  { name: 'reload', usage: '/reload', desc: 'Restart pi (reload extensions, skills, settings)' }
+];
 const COMMAND_META = [
+  { name: 'everyday', usage: '/everyday', desc: 'Load the Everyday model (RTX 3060)' },
+  { name: 'power', usage: '/power', desc: 'Load the Power model (both GPUs)' },
+  { name: 'server', usage: '/server', desc: 'Model server, profiles and GPUs' },
   { name: 'research', usage: '/research <question>', desc: 'Deep multi-source research → cited report' },
   { name: 'mode', usage: '/mode chat|plan|agent', desc: 'Switch operating mode' },
   { name: 'plan', usage: '/plan', desc: 'Read-only plan mode' },
   { name: 'agent', usage: '/agent on|off', desc: 'Agent mode (run commands)' },
+  { name: 'assistant', usage: '/assistant on|off', desc: 'One-off tasks, no conversation history' },
   { name: 'voice', usage: '/voice on|off', desc: 'Toggle voice listening' },
   { name: 'listen', usage: '/listen', desc: 'Dictate one utterance' },
   { name: 'settings', usage: '/settings', desc: 'Settings & past conversations' },
@@ -778,6 +909,19 @@ const COMMAND_META = [
 ];
 let commandItems = [];
 let commandIndex = 0;
+
+// Prompt templates, skills and extension commands pi reports (get_commands).
+let piCommands = [];
+
+function visibleCommands() {
+  if (engine !== 'pi') return COMMAND_META;
+  const extra = piCommands.map((c) => ({
+    name: c.name,
+    usage: `/${c.name}`,
+    desc: `${c.description || ''} (${c.source})`.trim()
+  }));
+  return [...PI_COMMAND_META, ...COMMAND_META, ...extra];
+}
 
 function commandActive() {
   return !commandMenu.classList.contains('hidden');
@@ -837,7 +981,7 @@ function updateCommandMenu() {
     return;
   }
   const q = m[1].toLowerCase();
-  commandItems = COMMAND_META.filter((c) => c.name.startsWith(q));
+  commandItems = visibleCommands().filter((c) => c.name.toLowerCase().startsWith(q));
   commandIndex = 0;
   renderCommandMenu();
 }
@@ -893,44 +1037,171 @@ input.addEventListener('keydown', (event) => {
   if (commandActive()) {
     if (event.key === 'ArrowDown') { event.preventDefault(); moveCommand(1); return; }
     if (event.key === 'ArrowUp') { event.preventDefault(); moveCommand(-1); return; }
-    if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); chooseCommand(commandItems[commandIndex]); return; }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault();
+      const item = commandItems[commandIndex];
+      const typedInFull = item && input.value.trim() === `/${item.name}`;
+      if (event.key === 'Enter' && typedInFull) {
+        closeCommandMenu();
+        submit();
+      } else chooseCommand(item);
+      return;
+    }
     if (event.key === 'Escape') { event.preventDefault(); closeCommandMenu(); return; }
   }
 
   if (event.key === 'Enter') {
+    if (event.shiftKey) return;
     event.preventDefault();
-    const text = input.value.trim();
-    input.value = '';
-    closeMention();
-    closeCommandMenu();
-    if (text.startsWith('/')) runCommand(text);
-    else send(text);
+    submit({ followUp: event.altKey });
   } else if (event.key === 'Escape') {
     closeMention();
     closeCommandMenu();
+    if (streaming) {
+      stopRun();
+      return;
+    }
     input.blur();
     setExpanded(false); // collapse back to the mascot
   }
 });
 
-function submit() {
+function submit(opts = {}) {
   const text = input.value.trim();
-  if (!text) return;
+  if (!text && !pendingImages.length) return;
   input.value = '';
+  autosize();
   closeMention();
   closeCommandMenu();
-  if (text.startsWith('/')) runCommand(text);
-  else send(text);
+  if (engine === 'pi' && text.startsWith('!')) runBash(text);
+  else if (text.startsWith('/')) runCommand(text);
+  else send(text, opts);
 }
+
+function autosize() {
+  input.style.height = 'auto';
+  input.style.height = `${input.scrollHeight}px`;
+  input.classList.toggle('scrolls', input.scrollHeight > input.clientHeight);
+}
+input.addEventListener('input', autosize);
+
+const PLACEHOLDER = {
+  idle: 'Say something… (@ files, /help)',
+  piIdle: 'Message LESLIE… (@ files, / commands, ! shell)',
+  piBusy: 'Steer… (Alt+Enter: queue for after)',
+  task: 'Give LESLIE a task… (nothing is remembered)',
+  taskBusy: 'Working on the task…'
+};
 
 function setSendMode(busy) {
   sendBtn.classList.toggle('stop', busy);
   sendBtn.innerHTML = `<i class="fa-solid ${busy ? 'fa-stop' : 'fa-arrow-up'}" aria-hidden="true"></i>`;
   sendBtn.title = busy ? 'Stop' : 'Send';
+  if (mode === 'assistant') input.placeholder = busy ? PLACEHOLDER.taskBusy : PLACEHOLDER.task;
+  else input.placeholder = engine !== 'pi' ? PLACEHOLDER.idle : busy ? PLACEHOLDER.piBusy : PLACEHOLDER.piIdle;
+}
+
+// --- Pasted images (sent with the next prompt on the pi engine) -------------
+let pendingImages = [];
+
+function takeImages() {
+  const images = pendingImages;
+  pendingImages = [];
+  renderAttachments();
+  return images;
+}
+
+function renderAttachments() {
+  attachmentsEl.innerHTML = '';
+  attachmentsEl.classList.toggle('hidden', !pendingImages.length);
+  pendingImages.forEach((img, i) => {
+    const box = document.createElement('div');
+    box.className = 'attachment';
+    const pic = document.createElement('img');
+    pic.src = `data:${img.mimeType};base64,${img.data}`;
+    const drop = document.createElement('button');
+    drop.textContent = '×';
+    drop.title = 'Remove';
+    drop.addEventListener('click', () => {
+      pendingImages.splice(i, 1);
+      renderAttachments();
+    });
+    box.append(pic, drop);
+    attachmentsEl.appendChild(box);
+  });
+}
+
+input.addEventListener('paste', (event) => {
+  const files = [...(event.clipboardData ? event.clipboardData.files : [])].filter((f) => f.type.startsWith('image/'));
+  if (!files.length) return;
+  event.preventDefault();
+  if (engine !== 'pi') {
+    systemLine('Image input needs the pi engine (Settings → Model & Connection).');
+    return;
+  }
+  for (const file of files) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const [, data] = String(reader.result).split(',');
+      pendingImages.push({ type: 'image', data, mimeType: file.type });
+      renderAttachments();
+    };
+    reader.readAsDataURL(file);
+  }
+});
+
+// --- "!command" runs a shell command through pi; "!!" keeps it out of context -
+let bashCard = null;
+window.leslie.onPiBashChunk((delta) => {
+  if (!bashCard) return;
+  bashCard.output.textContent += delta;
+  bashCard.classList.add('has-output');
+  bashCard.output.scrollTop = bashCard.output.scrollHeight;
+});
+
+async function runBash(raw) {
+  const exclude = raw.startsWith('!!');
+  const command = raw.slice(exclude ? 2 : 1).trim();
+  if (!command) return;
+  setExpanded(true);
+  const box = document.createElement('div');
+  box.className = 'msg assistant';
+  transcript.appendChild(box);
+  const card = createToolCard(box, { name: exclude ? '$ (private)' : '$', detail: command });
+  card.classList.add('open');
+  card.output.classList.remove('hidden');
+  bashCard = card;
+  scrollToBottom(true);
+  const res = await window.leslie.piBash(command, exclude);
+  bashCard = null;
+  const data = res.data || {};
+  if (!res.ok) setToolOutput(card, res.error);
+  else if (!card.output.textContent) setToolOutput(card, data.output || '(no output)');
+  const ok = res.ok && data.exitCode === 0 && !data.cancelled;
+  settleToolCard(card, ok, ok ? '' : data.cancelled ? `${command} — cancelled` : `${command} — exit ${data.exitCode ?? '?'}`);
+  scrollToBottom();
+}
+
+// Stop the run. On pi, queued messages would otherwise run after the abort, so
+// pull them back into the editor first (pi's own Esc behaviour).
+async function stopRun() {
+  if (engine === 'pi' && queuedBubbles.length) {
+    try {
+      const { steering = [], followUp = [] } = (await pi('clearQueue')) || {};
+      const restored = [...steering, ...followUp].join('\n\n');
+      while (queuedBubbles.length) queuedBubbles.shift().remove();
+      if (restored) {
+        input.value = [restored, input.value].filter(Boolean).join('\n\n');
+        autosize();
+      }
+    } catch {
+    }
+  }
+  window.leslie.cancel();
 }
 
 sendBtn.addEventListener('click', () => {
-  if (streaming) window.leslie.cancel();
+  if (streaming) stopRun();
   else submit();
 });
 mic.addEventListener('click', () => window.leslie.voiceListenOnce());
@@ -990,6 +1261,567 @@ window.leslie.onVoiceStatus(({ state, message, progress }) => {
   }
 });
 
+// --- pi engine: footer, pickers, dialogs, history ---------------------------
+
+const piBar = document.getElementById('pi-bar');
+const piModelChip = document.getElementById('pi-model');
+const piThinkingChip = document.getElementById('pi-thinking');
+const piContextChip = document.getElementById('pi-context');
+const piQueueChip = document.getElementById('pi-queue');
+const piStatusEl = document.getElementById('pi-status');
+const picker = document.getElementById('picker-menu');
+
+const GREETING = 'Hi, I’m LESLIE — type below to chat.';
+let piState = null;
+const piStatuses = new Map();
+
+const kTokens = (n) => {
+  if (n == null) return '—';
+  if (n >= 1024 && n % 1024 === 0) return `${n / 1024}k`;
+  return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
+};
+
+async function pi(name, args) {
+  const res = await window.leslie.pi(name, args);
+  if (!res.ok) throw new Error(res.error);
+  return res.data;
+}
+
+function piFail(err) {
+  systemLine(`⚠ ${err && err.message ? err.message : err}`, 'error');
+}
+
+function updatePiBar(state) {
+  piState = state;
+  piContextChip.classList.toggle('hidden', !(state && state.model));
+  if (!state || !state.model) {
+    piModelChip.textContent = 'no model';
+    piThinkingChip.classList.add('hidden');
+    return;
+  }
+  piModelChip.textContent = state.model.name;
+  piModelChip.title = `${state.model.provider}/${state.model.id} — click to switch`;
+  piThinkingChip.classList.toggle('hidden', !state.model.reasoning);
+  piThinkingChip.textContent = `🧠 ${state.thinkingLevel || 'off'}`;
+  const { tokens, window: win, percent } = state.context || {};
+  piContextChip.textContent = `${kTokens(tokens)} / ${kTokens(win)}${percent != null ? ` · ${Math.round(percent)}%` : ''}`;
+  piContextChip.classList.toggle('warn', percent >= 70 && percent < 90);
+  piContextChip.classList.toggle('hot', percent >= 90);
+  piContextChip.title =
+    `${state.sessionName ? `${state.sessionName} — ` : ''}context used${state.autoCompaction === false ? ' (auto-compaction off)' : ''}` +
+    ' — click for session stats';
+}
+
+function renderPiStatus() {
+  piStatusEl.textContent = [...piStatuses.values()].join(' · ');
+  piStatusEl.classList.toggle('hidden', !piStatuses.size);
+}
+
+// Generic picker anchored above the composer.
+let pickerItems = [];
+let pickerIndex = 0;
+let pickerOnPick = null;
+
+function closePicker() {
+  picker.classList.add('hidden');
+  picker.innerHTML = '';
+  pickerItems = [];
+  pickerOnPick = null;
+}
+
+function renderPicker(title) {
+  picker.innerHTML = '';
+  const head = document.createElement('div');
+  head.className = 'picker-head';
+  head.textContent = title;
+  picker.appendChild(head);
+  if (!pickerItems.length) {
+    const empty = document.createElement('div');
+    empty.className = 'mention-empty';
+    empty.textContent = 'Nothing to choose from';
+    picker.appendChild(empty);
+  }
+  pickerItems.forEach((item, i) => {
+    const row = document.createElement('div');
+    row.className = 'mention-item' + (i === pickerIndex ? ' active' : '') + (item.selected ? ' selected' : '');
+    const name = document.createElement('span');
+    name.className = 'mi-name';
+    name.textContent = item.label;
+    const detail = document.createElement('span');
+    detail.className = 'mi-type';
+    detail.textContent = item.detail || '';
+    row.append(name, detail);
+    row.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      pickItem(item);
+    });
+    picker.appendChild(row);
+  });
+  picker.classList.remove('hidden');
+  const active = picker.querySelector('.mention-item.active');
+  if (active) active.scrollIntoView({ block: 'nearest' });
+}
+
+function openPicker(title, items, onPick) {
+  setExpanded(true);
+  pickerItems = items;
+  pickerIndex = Math.max(0, items.findIndex((i) => i.selected));
+  pickerOnPick = onPick;
+  picker.dataset.title = title;
+  renderPicker(title);
+}
+
+function pickItem(item) {
+  const onPick = pickerOnPick;
+  closePicker();
+  if (item && onPick) Promise.resolve(onPick(item.value)).catch(piFail);
+}
+
+document.addEventListener('keydown', (event) => {
+  if (picker.classList.contains('hidden')) return;
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closePicker(); }
+  else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!pickerItems.length) return;
+    pickerIndex = (pickerIndex + (event.key === 'ArrowDown' ? 1 : -1) + pickerItems.length) % pickerItems.length;
+    renderPicker(picker.dataset.title);
+  } else if (event.key === 'Enter') {
+    event.preventDefault();
+    event.stopPropagation();
+    pickItem(pickerItems[pickerIndex]);
+  }
+}, true);
+document.addEventListener('mousedown', (e) => {
+  if (!picker.contains(e.target) && !piBar.contains(e.target)) closePicker();
+});
+
+// Everyday / Power profiles from the model server, offered above pi's model list.
+async function serverProfiles() {
+  const res = await window.leslie.server.status();
+  if (!res.ok || !res.data.reachable) return [];
+  return res.data.profiles
+    .filter((p) => p.state !== 'missing')
+    .map((p) => ({
+      label: `${p.name === 'power' ? '⚡' : '🌙'} ${p.label} — ${p.model}`,
+      detail: p.devices.includes(',') ? 'both GPUs' : p.devices === 'CUDA0' ? 'RTX 3060' : p.devices,
+      selected: res.data.activeProfile === p.name,
+      value: { profile: p.name }
+    }));
+}
+
+async function switchProfile(profile) {
+  const res = await window.leslie.server.switchTo(profile);
+  if (!res.ok) piFail(res.error);
+}
+
+async function chooseModel(search) {
+  const [models, profiles] = await Promise.all([pi('models'), search ? [] : serverProfiles()]);
+  const q = (search || '').trim().toLowerCase();
+  const matches = models.filter((m) => !q || `${m.provider}/${m.id} ${m.name}`.toLowerCase().includes(q));
+  const setModel = async (m) => {
+    await pi('setModel', { provider: m.provider, id: m.id });
+    systemLine(`Model → ${m.name || m.id}`);
+  };
+  if (q && matches.length === 1) return setModel(matches[0]);
+  const current = piState && piState.model;
+  const modelItems = matches.map((m) => ({
+    label: m.name || m.id,
+    detail: `${m.provider} · ${kTokens(m.contextWindow)}`,
+    selected: !profiles.length && current && current.provider === m.provider && current.id === m.id,
+    value: m
+  }));
+  openPicker(profiles.length ? 'Load a profile, or pick a loaded model' : 'Model', [...profiles, ...modelItems], (value) =>
+    value.profile ? switchProfile(value.profile) : setModel(value)
+  );
+}
+
+async function chooseThinking(level) {
+  const levels = await pi('thinkingLevels');
+  const setLevel = async (l) => {
+    await pi('setThinking', { level: l });
+    systemLine(`Thinking → ${l}`);
+  };
+  if (level) {
+    if (!levels.includes(level)) return systemLine(`Levels for this model: ${levels.join(', ')}`);
+    return setLevel(level);
+  }
+  openPicker(
+    'Thinking level',
+    levels.map((l) => ({ label: l, selected: piState && piState.thinkingLevel === l, value: l })),
+    setLevel
+  );
+}
+
+async function showSessionStats() {
+  const st = await pi('state');
+  updatePiBar(st);
+  const c = st.counts || {};
+  const t = st.tokens || {};
+  const ctx = st.context || {};
+  systemLine(
+    [
+      `${st.sessionName || 'Session'}: ${c.user || 0} prompts, ${c.assistant || 0} replies, ${c.tools || 0} tool calls`,
+      `tokens in ${kTokens(t.input)} · out ${kTokens(t.output)} · cache ${kTokens(t.cacheRead)}${st.cost ? ` · $${st.cost.toFixed(4)}` : ''}`,
+      `context ${kTokens(ctx.tokens)} of ${kTokens(ctx.window)}${ctx.percent != null ? ` (${Math.round(ctx.percent)}%)` : ''} · auto-compaction ${st.autoCompaction === false ? 'off' : 'on'}`,
+      st.model ? `${st.model.provider}/${st.model.id}` : ''
+    ].filter(Boolean).join('\n')
+  );
+}
+
+const PI_COMMANDS = {
+  model: (arg) => chooseModel(arg).catch(piFail),
+  thinking: (arg) => chooseThinking(arg.trim()).catch(piFail),
+  compact: async (arg) => {
+    if (streaming) return systemLine('Wait for LESLIE to finish before compacting.');
+    try {
+      await pi('compact', { instructions: arg.trim() || undefined });
+    } catch (err) {
+      piFail(err);
+    }
+  },
+  new: () => COMMANDS.reset(),
+  resume: () => window.leslie.openSettings(),
+  name: async (arg) => {
+    if (!arg.trim()) return systemLine('Usage: /name <session name>');
+    await pi('setSessionName', { name: arg.trim() }).catch(piFail);
+    systemLine(`Session named “${arg.trim()}”.`);
+  },
+  session: () => showSessionStats().catch(piFail),
+  fork: async () => {
+    if (streaming) return systemLine('Wait for LESLIE to finish before forking.');
+    try {
+      const messages = await pi('forkMessages');
+      openPicker(
+        'Fork from message',
+        messages.map((m) => ({ label: m.text.split('\n')[0].slice(0, 80), value: m })).reverse(),
+        async (m) => {
+          const res = await pi('fork', { entryId: m.entryId });
+          if (res && res.cancelled) return;
+          input.value = res && res.text ? res.text : m.text;
+          autosize();
+          input.focus();
+        }
+      );
+    } catch (err) {
+      piFail(err);
+    }
+  },
+  clone: async () => {
+    await pi('clone').catch(piFail);
+  },
+  copy: async () => {
+    try {
+      const text = await pi('lastReply');
+      await navigator.clipboard.writeText(text);
+      systemLine(text ? 'Copied the last reply.' : 'Nothing to copy yet.');
+    } catch (err) {
+      piFail(err);
+    }
+  },
+  export: async () => {
+    try {
+      systemLine(`Exported to ${await pi('exportHtml')}`);
+    } catch (err) {
+      piFail(err);
+    }
+  },
+  autocompact: async (arg) => {
+    const enabled = !/^(off|0|false|no)$/i.test(arg.trim());
+    await pi('setAutoCompaction', { enabled }).catch(piFail);
+    systemLine(`Auto-compaction ${enabled ? 'on' : 'off'}.`);
+  },
+  reload: async () => {
+    systemLine('Restarting pi…');
+    await pi('reload').catch(piFail);
+  }
+};
+
+piModelChip.addEventListener('click', () => PI_COMMANDS.model(''));
+piThinkingChip.addEventListener('click', () => PI_COMMANDS.thinking(''));
+piContextChip.addEventListener('click', () => PI_COMMANDS.session());
+
+// Extension dialogs (select / confirm / input / editor) from pi.
+function showDialog(req) {
+  setExpanded(true);
+  pendingConfirms++;
+  const card = document.createElement('div');
+  card.className = 'confirm-card';
+  if (req.title) {
+    const title = document.createElement('div');
+    title.className = 'cc-title';
+    title.textContent = req.title;
+    card.appendChild(title);
+  }
+  if (req.message) {
+    const text = document.createElement('div');
+    text.className = 'cc-text';
+    text.textContent = req.message;
+    card.appendChild(text);
+  }
+
+  let settled = false;
+  const finish = (payload) => {
+    if (settled) return;
+    settled = true;
+    if (payload) window.leslie.piUiResponse(req.id, payload);
+    card.classList.add('resolved');
+    pendingConfirms = Math.max(0, pendingConfirms - 1);
+  };
+  const button = (label, cls, onClick) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (cls) b.className = cls;
+    b.addEventListener('click', onClick);
+    return b;
+  };
+  const actions = document.createElement('div');
+  actions.className = 'cc-actions';
+  const cancel = button('Cancel', 'cc-no', () => finish({ cancelled: true }));
+
+  if (req.method === 'select') {
+    const options = document.createElement('div');
+    options.className = 'cc-options';
+    for (const opt of req.options || []) options.appendChild(button(opt, '', () => finish({ value: opt })));
+    card.appendChild(options);
+    actions.appendChild(cancel);
+  } else if (req.method === 'confirm') {
+    actions.append(button('Yes', 'cc-yes', () => finish({ confirmed: true })), button('No', 'cc-no', () => finish({ confirmed: false })));
+  } else {
+    const field = document.createElement(req.method === 'editor' ? 'textarea' : 'input');
+    field.className = 'cc-field';
+    if (req.method === 'editor') {
+      field.rows = 6;
+      field.value = req.prefill || '';
+    } else {
+      field.placeholder = req.placeholder || '';
+      field.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); finish({ value: field.value }); }
+      });
+    }
+    card.appendChild(field);
+    actions.append(button(req.method === 'editor' ? 'Save' : 'OK', 'cc-yes', () => finish({ value: field.value })), cancel);
+    setTimeout(() => field.focus(), 0);
+  }
+  card.appendChild(actions);
+  transcript.appendChild(card);
+  scrollToBottom(true);
+  // pi answers for itself when a dialog times out; just retire the card.
+  if (req.timeout) setTimeout(() => finish(null), req.timeout);
+}
+
+const contentText = (content) =>
+  typeof content === 'string' ? content : (content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+const imageCount = (content) => (Array.isArray(content) ? content.filter((b) => b.type === 'image').length : 0);
+const stripReplyTags = (text) =>
+  String(text || '')
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .replace(/<\/summary>/g, '\n\n')
+    .replace(/<\/?(?:summary|details)>/g, '')
+    .trim();
+const argDetail = (args) => (args && (args.command || args.path || args.pattern || args.query || args.url || args.text)) || '';
+
+/** Rebuild the transcript from pi's messages (after resume, fork, or at startup). */
+function renderHistory(messages) {
+  const cards = new Map();
+  for (const m of messages) {
+    switch (m.role) {
+      case 'user':
+        appendUser(contentText(m.content), { images: imageCount(m.content) });
+        break;
+      case 'assistant': {
+        beginAssistant();
+        for (const b of m.content || []) {
+          if (b.type === 'thinking' && b.thinking) {
+            appendThinking(b.thinking);
+            current.thinking.classList.add('collapsed');
+          } else if (b.type === 'toolCall') {
+            cards.set(b.id, createToolCard(current.tools, { name: b.name, detail: argDetail(b.arguments) }));
+          }
+        }
+        let text = stripReplyTags(contentText(m.content));
+        if (!text && m.stopReason === 'error' && m.errorMessage) text = `Error: ${m.errorMessage}`;
+        finishAssistant(text);
+        break;
+      }
+      case 'toolResult': {
+        const card = cards.get(m.toolCallId);
+        if (!card) break;
+        settleToolCard(card, !m.isError);
+        setToolOutput(card, contentText(m.content));
+        cards.delete(m.toolCallId);
+        break;
+      }
+      case 'bashExecution': {
+        const box = document.createElement('div');
+        box.className = 'msg assistant';
+        transcript.appendChild(box);
+        const card = createToolCard(box, { name: m.excludeFromContext ? '$ (private)' : '$', detail: m.command });
+        settleToolCard(card, m.exitCode === 0 && !m.cancelled);
+        setToolOutput(card, m.output);
+        break;
+      }
+      case 'compactionSummary':
+        systemLine(`🗜 Earlier conversation compacted (${kTokens(m.tokensBefore)} tokens summarized).`);
+        break;
+      case 'branchSummary':
+        systemLine('↳ Continued from a summarized branch.');
+        break;
+      case 'custom':
+        if (m.display) systemLine(contentText(m.content));
+        break;
+      default:
+    }
+  }
+  for (const card of cards.values()) settleToolCard(card, false);
+  scrollToBottom(true);
+}
+
+async function reloadTranscript() {
+  if (streaming) return;
+  let messages = [];
+  try {
+    messages = await pi('messages');
+  } catch (err) {
+    clearTranscript();
+    piFail(err);
+    return;
+  }
+  clearTranscript();
+  if (messages.length) renderHistory(messages);
+  else systemLine(GREETING);
+}
+
+async function refreshPiCommands() {
+  try {
+    piCommands = await pi('commands');
+  } catch {
+    piCommands = [];
+  }
+}
+
+// One status line per model load, updated in place as the server reports progress.
+let serverLine = null;
+window.leslie.server.onEvent((ev) => {
+  if (ev.type === 'progress') {
+    setExpanded(true);
+    if (serverLine) serverLine.textContent = `⏳ ${ev.text}`;
+    else serverLine = systemLine(`⏳ ${ev.text}`);
+    scrollToBottom();
+  } else if (ev.type === 'status' && !ev.status.switching && serverLine) {
+    const active = ev.status.profiles.find((p) => p.name === ev.status.activeProfile);
+    serverLine.textContent = active ? `✓ ${active.label} model ready — ${active.model}` : serverLine.textContent.replace('⏳', '⚠');
+    serverLine = null;
+  }
+});
+
+let compactionLine = null;
+window.leslie.onPiEvent((ev) => {
+  if (engine !== 'pi') return;
+  switch (ev.type) {
+    case 'state':
+      updatePiBar(ev.state);
+      break;
+    case 'queue': {
+      const n = ev.steering.length + ev.followUp.length;
+      piQueueChip.classList.toggle('hidden', !n);
+      piQueueChip.textContent = `${n} queued`;
+      break;
+    }
+    case 'compaction':
+      if (ev.phase === 'start') {
+        compactionLine = systemLine(`🗜 Compacting conversation${ev.reason === 'manual' ? '' : ' (context is filling up)'}…`);
+      } else {
+        const text = ev.error
+          ? `⚠ Compaction failed: ${ev.error}`
+          : ev.aborted
+            ? '🗜 Compaction cancelled.'
+            : `🗜 Compacted ${kTokens(ev.tokensBefore)} → ~${kTokens(ev.tokensAfter)} tokens.`;
+        if (compactionLine) compactionLine.textContent = text;
+        else systemLine(text, ev.error ? 'error' : undefined);
+        compactionLine = null;
+      }
+      break;
+    case 'retry':
+      systemLine(`↻ Retrying (${ev.attempt}/${ev.maxAttempts}): ${ev.error}`);
+      break;
+    case 'notify':
+      systemLine(`${ev.level === 'info' ? '' : '⚠ '}${ev.message}`, ev.level === 'error' ? 'error' : undefined);
+      break;
+    case 'status':
+      if (ev.text) piStatuses.set(ev.key, ev.text);
+      else piStatuses.delete(ev.key);
+      renderPiStatus();
+      break;
+    case 'editor-text':
+      input.value = ev.text;
+      autosize();
+      input.focus();
+      break;
+    case 'ui':
+      showDialog(ev.request);
+      break;
+    case 'session':
+      reloadTranscript();
+      refreshPiCommands();
+      break;
+    default:
+  }
+});
+
+async function applyEngine(next) {
+  engine = next === 'pi' ? 'pi' : 'native';
+  piBar.classList.toggle('hidden', engine !== 'pi');
+  setSendMode(streaming);
+  closePicker();
+  piStatuses.clear();
+  renderPiStatus();
+  if (engine !== 'pi') return;
+  piModelChip.textContent = 'starting pi…';
+  try {
+    updatePiBar(await pi('state'));
+  } catch {
+    // The backend already reported why pi could not start.
+    piModelChip.textContent = 'pi unavailable';
+    return;
+  }
+  await reloadTranscript();
+  refreshPiCommands();
+}
+
+window.leslie.onEngine((next) => {
+  clearTranscript();
+  systemLine(next === 'pi' ? 'Switched to the pi engine.' : 'Switched to the built-in engine.');
+  applyEngine(next);
+});
+
+// --- Screen recording indicator ---------------------------------------------
+const recIndicator = document.getElementById('rec-indicator');
+let recTimer = null;
+
+function showRecording(state) {
+  clearInterval(recTimer);
+  recTimer = null;
+  recIndicator.classList.toggle('hidden', !state.recording);
+  if (!state.recording) return;
+  const startedAt = state.startedAt || Date.now() - (state.seconds || 0) * 1000;
+  const tick = () => {
+    const s = Math.floor((Date.now() - startedAt) / 1000);
+    recIndicator.textContent = `REC ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+  tick();
+  recTimer = setInterval(tick, 1000);
+}
+
+window.leslie.onRecording(showRecording);
+window.leslie.recordingState().then(showRecording).catch(() => {});
+// Keep the click from also toggling the chat panel via the stage handler.
+for (const type of ['pointerdown', 'pointerup']) recIndicator.addEventListener(type, (e) => e.stopPropagation());
+recIndicator.addEventListener('click', async () => {
+  const res = await window.leslie.stopRecording();
+  if (res && res.file) systemLine(`🎬 Recording saved: ${res.file}`);
+});
+
 // --- Theme ------------------------------------------------------------------
 
 function applyAccent(color) {
@@ -997,9 +1829,14 @@ function applyAccent(color) {
 }
 window.leslie.onTheme(applyAccent);
 
-window.addEventListener('DOMContentLoaded', () => {
-  systemLine('Hi, I’m LESLIE — type below to chat.');
+window.addEventListener('DOMContentLoaded', async () => {
   input.focus();
+  const initial = await window.leslie.getEngine();
+  if (initial === 'pi') applyEngine('pi');
+  else {
+    systemLine(GREETING);
+    applyEngine('native');
+  }
   window.leslie.getMode().then(reflectMode);
   window.leslie.getAccent().then(applyAccent);
 });

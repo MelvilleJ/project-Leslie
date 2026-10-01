@@ -90,4 +90,12 @@ function resolvePath(spec) {
   return path.normalize(s);
 }
 
-module.exports = { isWindows, namedLocations, roots, isRootsRequest, resolvePath };
+function underRoots(target, roots) {
+  if (!roots.length) return true;
+  return roots.some((root) => {
+    const r = path.resolve(root);
+    return target === r || target.startsWith(r + path.sep);
+  });
+}
+
+module.exports = { isWindows, namedLocations, roots, isRootsRequest, resolvePath, underRoots };

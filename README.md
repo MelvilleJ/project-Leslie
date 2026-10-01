@@ -33,6 +33,87 @@ npm start
 Common base URLs: llama.cpp `:8080/v1`, LM Studio `:1234/v1`, Ollama `:11434/v1`.
 If the bubble shows a connection error, the server isn't reachable at that URL.
 
+## Install as an app (Arch / Hyprland)
+
+```bash
+npm run install:linux     # build + install to ~/.local/opt/leslie, enable services
+systemctl --user start leslie-llama leslie
+```
+
+This installs per-user (no root): the app, `leslie` and `leslie-server` in
+`~/.local/bin`, launcher entries, icons, and two systemd user services that start
+at login — `leslie-llama` (llama.cpp router, loads the **Everyday** model) and
+`leslie` (the app). The installed app reads `~/.config/project-leslie/.env`
+(a link to this repo's `.env`).
+
+### Model server: Everyday / Power
+
+| Profile | Default model | GPUs |
+|---|---|---|
+| Everyday (loaded at login) | gpt-oss-20b | RTX 3060 only |
+| Power | Qwen3.8-27B | RTX 3060 + RX 9060 XT |
+
+Switch with `/everyday` / `/power`, the model chip's picker, the tray's **Model**
+menu, **Settings → Models & GPUs** (start/stop/restart, log, VRAM, per-profile model,
+GPUs, context), or the terminal: `leslie-server` (interactive) /
+`leslie-server power`. llama.cpp's `--fit` sizes GPU/RAM offload to each profile's
+GPUs. Settings live in `~/.config/project-leslie/llama-server.json`.
+
+### Modes
+
+The mode button (and `/mode`, the tray, Settings) cycles **Chat** (conversation),
+**Plan** (read-only, proposes a plan), **Agent** (runs commands, changes files) and
+**Assistant** (`/assistant`): every message is a one-off task with agent tools and a
+blank context — nothing carries over, and on pi it runs in a separate, sessionless pi
+so your chat session is untouched. Good for voice: "Leslie, launch Warframe".
+
+### Speech recognition
+
+`bash scripts/setup-whisper.sh` builds whisper.cpp (CUDA) and runs Whisper
+large-v3-turbo as the `leslie-whisper` user service on `127.0.0.1:8178` (~0.9 GB on
+the RTX 3060, ~0.2 s per utterance). It starts before `leslie-llama`, so llama.cpp's
+`--fit` sizes the Everyday model around it. Settings → Voice → Speech recognition
+switches between it and the slower in-app model.
+
+### Home display
+
+On Hyprland the companion lives on one monitor (`LESLIE_HOME_MONITOR`, default
+`HDMI-A-1`; Settings → Behaviour → Home display): she opens there, is pinned across
+its workspaces, and a wake word brings her back there without taking focus.
+Left-click the tray icon or run `leslie --toggle` (bind it to a key) to show/hide her.
+
+## The pi engine (default)
+
+LESLIE is a desktop GUI for the [pi](https://pi.dev) agent harness: pi runs the
+agent (sessions, compaction, retries, every provider, skills, prompt templates,
+extensions) and LESLIE adds her own tools, voice, memory and the mascot on top.
+Install pi and log in to a provider once in a terminal (`pi`, then `/login`).
+
+```bash
+# LESLIE_PI_MODEL: blank = pi's default model; 'leslie' = LESLIE_BASE_URL; or provider/model
+# LESLIE_PI_CWD:   where pi runs and stores sessions (default: home folder)
+# LESLIE_ENGINE=native switches back to LESLIE's built-in loop.
+LESLIE_PI_MODEL= LESLIE_PI_CWD=~ npm start
+```
+
+In the chat panel:
+
+| | |
+|---|---|
+| Footer chips | model (click to switch) · 🧠 thinking level · context used (click for tokens/cost) |
+| Enter / Shift+Enter | send / new line |
+| Typing while LESLIE works | Enter steers her after the current step; Alt+Enter queues it for when she finishes |
+| Esc or ⏹ while working | stop; queued messages come back into the editor |
+| `!cmd` / `!!cmd` | run a shell command (output goes to context / stays private) |
+| Paste an image | attach it to the next message |
+| `/model` `/thinking` `/compact` `/new` `/resume` `/name` `/session` `/fork` `/clone` `/copy` `/export` `/autocompact` `/reload` | pi's session commands |
+| `/your-template`, `/skill:name`, extension commands | listed in the `/` menu and run by pi |
+
+Tool cards expand to show their output, extension dialogs (select / confirm /
+input / editor) appear inline, and **Settings → Sessions** lists pi's sessions
+for the working folder, the same ones `pi --resume` shows. LESLIE reopens the
+last session on launch. See [docs/pi-integration.md](docs/pi-integration.md).
+
 ## Tools (web search via SearXNG)
 
 LESLIE can call tools through the OpenAI tools API. The first tool is

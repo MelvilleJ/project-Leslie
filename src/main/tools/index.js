@@ -18,8 +18,12 @@ const readDocument = require('./readDocument');
 const writeFile = require('./writeFile');
 const task = require('./task');
 const setMode = require('./setMode');
+const screenRecord = require('./screenRecord');
+const screenshot = require('./screenshot');
+const closeApp = require('./closeApp');
+const modelProfile = require('./modelProfile');
 
-const base = [webSearch, deepSearch, deepResearch, openUrl, openSearch, openApp, createDocument, task, setMode];
+const base = [webSearch, deepSearch, deepResearch, openUrl, openSearch, openApp, closeApp, createDocument, task, setMode, modelProfile, screenRecord, screenshot];
 const agentTools = [runCommand, installSoftware];
 const fsTools = [listDirectory, readFile, readDocument];
 

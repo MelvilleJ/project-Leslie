@@ -237,6 +237,18 @@ input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); }
 .kv .k { color: #9a9ab0; }
 
 .status-line { margin-bottom: 12px; }
+.srv-profile .srv-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.srv-profile .srv-head h3 { margin: 0; }
+.srv-profile.active { border-color: rgba(155, 123, 255, 0.7); }
+.srv-profile .srv-form { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; margin: 10px 0; font-size: 0.76rem; color: #9a9ab0; }
+.srv-profile .srv-form input,
+.srv-profile .srv-form select { width: 100%; min-width: 0; }
+.srv-profile .srv-actions { display: flex; gap: 8px; }
+.srv-state { font-size: 0.68rem; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: #c8c8d8; }
+.srv-state.loaded { background: rgba(88, 194, 106, 0.2); color: #8fe0a8; }
+.srv-state.loading { background: rgba(196, 160, 75, 0.2); color: #ffd479; }
+.srv-log { margin-top: 14px; max-height: 260px; overflow: auto; padding: 10px; border-radius: 10px; background: rgba(0, 0, 0, 0.35);
+  font: 0.7rem/1.4 ui-monospace, monospace; white-space: pre-wrap; color: #c8c8d8; user-select: text; }
 .status-line.ok { color: #8fe0a8; }
 .status-line.err { color: #ff9bab; }
 .muted { color: #9a9ab0; }

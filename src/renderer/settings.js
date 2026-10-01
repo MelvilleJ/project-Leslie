@@ -35,6 +35,8 @@ function showPanel(name) {
   panels.forEach((p) => p.classList.toggle('active', p.dataset.panel === name));
   if (name === 'system') startMonitor();
   else stopMonitor();
+  if (name === 'server') startServerPanel();
+  else stopServerPanel();
   if (name === 'conversations') loadConversations();
   if (name === 'memory') loadMemories();
   if (name === 'animations') loadAnimations();
@@ -71,7 +73,8 @@ async function buildForms() {
     const container = document.getElementById(GROUP_TO_CONTAINER[field.group]);
     if (!container) continue;
     const fieldEl = renderField(field, values[field.key]);
-    if (field.dependsOn) fieldEl.classList.add('field-sub');
+    const controller = field.dependsOn && schema.find((f) => f.key === field.dependsOn.key);
+    if (controller && controller.group === field.group) fieldEl.classList.add('field-sub');
     container.append(fieldEl);
   }
 
@@ -160,6 +163,7 @@ function renderField(field, value) {
     const input = el('input', { type: field.type === 'password' ? 'password' : 'text' });
     input.value = value ?? '';
     if (field.key === 'model') input.setAttribute('list', 'model-options');
+    if (field.key === 'piModel') input.setAttribute('list', 'pi-model-options');
     input.addEventListener('change', () => save(field.key, input.value, field.label));
     control.append(input);
     control.dataset.key = field.key;
@@ -199,10 +203,21 @@ document.getElementById('accent-reset').addEventListener('click', () => {
 });
 
 const connStatus = document.getElementById('conn-status');
+// On the pi engine this lists pi's models (every provider pi is logged in to).
+async function listPiModels() {
+  const res = await api.pi('models');
+  if (!res.ok) return res;
+  const dl = document.getElementById('pi-model-options');
+  dl.innerHTML = '';
+  const ids = res.data.map((m) => `${m.provider}/${m.id}`);
+  ids.forEach((id) => dl.append(el('option', { value: id })));
+  return { ok: true, models: ids };
+}
+
 document.getElementById('model-refresh').addEventListener('click', async () => {
   connStatus.textContent = 'Listing models…';
   connStatus.className = 'status-line muted small';
-  const res = await api.listModels();
+  const res = engine === 'pi' ? await listPiModels() : await api.listModels();
   if (!res.ok) {
     connStatus.textContent = `Couldn't list models: ${res.error}`;
     connStatus.className = 'status-line err small';
@@ -271,6 +286,9 @@ async function openConversation(id) {
   }
   const head = el('div', { class: 'reader-head' },
     el('button', { class: 'btn small', text: '▶ Resume', onclick: () => resumeConv(id) }),
+    engine === 'pi'
+      ? el('button', { class: 'btn small', text: '⧉ Copy path', onclick: () => navigator.clipboard.writeText(id).then(() => toast('Session path copied')) })
+      : null,
     el('button', { class: 'btn small danger', text: '🗑 Delete', onclick: () => deleteConv(id) })
   );
   convDetailEl.append(head, el('h3', { text: conv.title, style: 'margin-bottom:12px;color:#f3f1fb' }));
@@ -291,7 +309,11 @@ async function resumeConv(id) {
   loadConversations();
 }
 async function deleteConv(id) {
-  await api.deleteConversation(id);
+  const res = await api.deleteConversation(id);
+  if (res && res.ok === false) {
+    toast(res.error || 'Could not delete', true);
+    return;
+  }
   if (selectedConv === id) {
     selectedConv = null;
     convDetailEl.innerHTML = '';
@@ -316,6 +338,26 @@ document.getElementById('conv-clear').addEventListener('click', async () => {
   toast('All conversations deleted');
 });
 api.onConversationsChanged?.(() => { if (activePanel === 'conversations') loadConversations(); });
+
+// --- Engine-dependent labels -------------------------------------------------
+let engine = 'native';
+
+function applyEngine(next) {
+  engine = next;
+  const onPi = engine === 'pi';
+  document.getElementById('conv-heading').textContent = onPi ? 'pi sessions' : 'Past conversations';
+  document.getElementById('conv-hint').classList.toggle('hidden', !onPi);
+  document.getElementById('conv-clear').classList.toggle('hidden', onPi);
+  document.querySelector('.nav-item[data-panel="conversations"]').textContent = onPi ? '🗂 Sessions' : '🗂 Conversations';
+  if (activePanel === 'conversations') loadConversations();
+  if (onPi) listPiModels().catch(() => {});
+}
+
+api.getEngine().then(applyEngine);
+api.onEngine(applyEngine);
+api.onPiEvent((ev) => {
+  if (ev.type === 'session' && activePanel === 'conversations') loadConversations();
+});
 
 const memListEl = document.getElementById('mem-list');
 async function loadMemories() {
@@ -628,3 +670,155 @@ api.onAnimationsChanged((cfg) => {
 buildForms();
 buildAbout();
 loadConversations();
+
+// --- Models & GPUs (llama.cpp server profiles) ---------------------------------
+const srv = api.server;
+const srvStatusEl = document.getElementById('srv-status');
+const srvProgressEl = document.getElementById('srv-progress');
+const srvGpusEl = document.getElementById('srv-gpus');
+const srvProfilesEl = document.getElementById('srv-profiles');
+const srvLogEl = document.getElementById('srv-log');
+const srvEnabled = document.getElementById('srv-enabled');
+
+const DEVICE_OPTIONS = [
+  { value: 'CUDA0', label: 'RTX 3060 only' },
+  { value: 'CUDA0,Vulkan0', label: 'Both GPUs' },
+  { value: 'Vulkan0', label: 'Radeon only' }
+];
+const CTX_OPTIONS = [8192, 16384, 32768, 65536, 131072];
+
+let srvModels = [];
+let srvTimer = null;
+let srvEditing = false;
+
+function srvToast(res, okText) {
+  if (res.ok) {
+    if (okText) toast(okText);
+  } else toast(res.error, true);
+  return res.ok;
+}
+
+function select(options, value) {
+  const s = el('select');
+  for (const o of options) {
+    const opt = el('option', { value: o.value, text: o.label });
+    if (String(o.value) === String(value)) opt.selected = true;
+    s.append(opt);
+  }
+  return s;
+}
+
+function renderProfile(p, st) {
+  const active = st.activeProfile === p.name;
+  const stateText = { loaded: 'loaded', loading: 'loading…', unloaded: 'not loaded', missing: 'model missing' }[p.state] || p.state;
+  const model = select(srvModels.map((m) => ({ value: m.id, label: `${m.id} (${(m.bytes / 1e9).toFixed(1)} GB)` })), p.model);
+  const devices = select(DEVICE_OPTIONS, p.devices);
+  const split = el('input', { type: 'text', value: p.tensorSplit || '', placeholder: 'e.g. 12,16' });
+  const ctx = select(CTX_OPTIONS.map((n) => ({ value: n, label: `${n / 1024}k tokens` })), p.ctx);
+  const moe = el('input', { type: 'number', min: 0, max: 64, placeholder: 'auto', value: p.cpuMoeLayers ?? '' });
+  const splitRow = [el('span', { text: 'GPU split' }), split];
+  const syncSplit = () => splitRow.forEach((n) => n.classList.toggle('hidden', !devices.value.includes(',')));
+  devices.addEventListener('change', syncSplit);
+  syncSplit();
+  for (const c of [model, devices, split, ctx, moe]) c.addEventListener('focus', () => { srvEditing = true; });
+
+  const load = el('button', { class: 'btn', text: active ? 'Reload' : `Load ${p.label}` });
+  load.disabled = st.switching;
+  load.addEventListener('click', async () => {
+    srvToast(await srv.switchTo(p.name), `${p.label} model loaded`);
+    refreshServer();
+  });
+  const save = el('button', { class: 'btn', text: 'Save' });
+  save.addEventListener('click', async () => {
+    const patch = { profiles: { [p.name]: {
+      model: model.value, devices: devices.value, tensorSplit: devices.value.includes(',') ? split.value.trim() : '',
+      ctx: Number(ctx.value), cpuMoeLayers: moe.value === '' ? null : Number(moe.value)
+    } } };
+    srvEditing = false;
+    if (!srvToast(await srv.save(patch))) return;
+    toast(`${p.label} saved — restart the server to apply`);
+    refreshServer();
+  });
+
+  return el('div', { class: `scard srv-profile${active ? ' active' : ''}` },
+    el('div', { class: 'srv-head' }, el('h3', { text: p.label }), el('span', { class: `srv-state ${p.state}`, text: stateText })),
+    el('div', { class: 'sub', text: p.description }),
+    el('div', { class: 'srv-form' },
+      el('span', { text: 'Model' }), model,
+      el('span', { text: 'GPUs' }), devices,
+      ...splitRow,
+      el('span', { text: 'Context' }), ctx,
+      el('span', { text: 'Experts in RAM', title: 'MoE layers whose experts stay in system RAM. Blank = auto-fit to the GPUs.' }), moe
+    ),
+    el('div', { class: 'srv-actions' }, load, save)
+  );
+}
+
+function renderServer(st) {
+  const svc = st.service;
+  const running = st.reachable;
+  srvStatusEl.textContent = running
+    ? `● Running at ${st.url}${svc.active === 'active' ? ' (leslie-llama service)' : ' (started outside LESLIE)'} · ${st.loaded.length ? `loaded: ${st.loaded.join(', ')}` : 'no model loaded'}`
+    : `○ Stopped${svc.installed ? '' : ' — Start creates the leslie-llama service'}`;
+  srvStatusEl.className = `status-line small ${running ? 'ok' : 'muted'}`;
+  srvEnabled.checked = svc.enabled;
+  document.getElementById('srv-start').disabled = running;
+  document.getElementById('srv-stop').disabled = svc.active !== 'active';
+
+  srvGpusEl.innerHTML = '';
+  for (const g of st.gpus) {
+    const pct = g.totalMiB ? Math.round((g.usedMiB / g.totalMiB) * 100) : 0;
+    srvGpusEl.append(scard(g.name, meter(pct), el('div', { class: 'sub', text: `${gb(g.usedMiB)} / ${gb(g.totalMiB)} GB VRAM` })));
+  }
+  if (srvEditing) return;
+  srvProfilesEl.innerHTML = '';
+  for (const p of st.profiles) srvProfilesEl.append(renderProfile(p, st));
+}
+
+async function refreshServer() {
+  const [st, models] = await Promise.all([srv.status(), srvModels.length ? null : srv.models()]);
+  if (models && models.ok) srvModels = models.data;
+  if (st.ok) renderServer(st.data);
+  else srvStatusEl.textContent = st.error;
+}
+
+function startServerPanel() {
+  srvEditing = false;
+  refreshServer();
+  if (!srvTimer) srvTimer = setInterval(refreshServer, 3000);
+}
+function stopServerPanel() {
+  clearInterval(srvTimer);
+  srvTimer = null;
+}
+
+for (const [id, action, done] of [['srv-start', 'start', 'Server started'], ['srv-stop', 'stop', 'Server stopped'], ['srv-restart', 'restart', 'Server restarted']]) {
+  document.getElementById(id).addEventListener('click', async () => {
+    srvProgressEl.textContent = `${action === 'stop' ? 'Stopping' : 'Starting'} the model server…`;
+    srvProgressEl.classList.remove('hidden');
+    srvToast(await srv.service(action), done);
+    srvProgressEl.classList.add('hidden');
+    refreshServer();
+  });
+}
+srvEnabled.addEventListener('change', async () => {
+  srvToast(await srv.service(srvEnabled.checked ? 'enable' : 'disable'), srvEnabled.checked ? 'Starts at login' : 'Won’t start at login');
+  refreshServer();
+});
+document.getElementById('srv-logs').addEventListener('click', async () => {
+  const res = await srv.logs();
+  srvLogEl.textContent = res.ok ? res.data || '(no log yet)' : res.error;
+  srvLogEl.classList.toggle('hidden');
+  srvLogEl.scrollTop = srvLogEl.scrollHeight;
+});
+
+srv.onEvent((ev) => {
+  if (ev.type === 'progress') {
+    srvProgressEl.textContent = ev.text;
+    srvProgressEl.classList.remove('hidden');
+  } else if (ev.type === 'status') {
+    if (!ev.status.switching) srvProgressEl.classList.add('hidden');
+    if (activePanel === 'server') renderServer(ev.status);
+  }
+});
+api.onShowPanel((panel) => showPanel(panel));

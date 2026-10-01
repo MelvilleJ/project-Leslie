@@ -16,12 +16,14 @@
       <button class="mode-btn" data-mode="chat" type="button">💬 Chat</button>
       <button class="mode-btn" data-mode="plan" type="button">📋 Plan</button>
       <button class="mode-btn" data-mode="agent" type="button">🤖 Agent</button>
+      <button class="mode-btn" data-mode="assistant" type="button">⚡ Assistant</button>
     </span>
   </header>
 
   <div id="shell">
     <nav id="nav">
       <button class="nav-item active" data-panel="conversations" type="button">🗂 Conversations</button>
+      <button class="nav-item" data-panel="server" type="button">🖥 Models &amp; GPUs</button>
       <button class="nav-item" data-panel="system" type="button">📊 System</button>
       <button class="nav-item" data-panel="connection" type="button">🔌 Model &amp; Connection</button>
       <button class="nav-item" data-panel="generation" type="button">🎚 Generation</button>
@@ -36,18 +38,47 @@
     <main id="main">
       <section class="panel active" data-panel="conversations">
         <div class="panel-head">
-          <h2>Past conversations</h2>
+          <h2 id="conv-heading">Past conversations</h2>
           <div class="panel-actions">
             <button id="conv-new" class="btn" type="button">＋ New</button>
             <button id="conv-clear" class="btn danger" type="button">Delete all</button>
           </div>
         </div>
+        <p id="conv-hint" class="muted small hidden" style="margin-bottom:10px">
+          These are pi’s sessions for LESLIE’s working folder — the same ones <code>pi --resume</code> shows.
+          Deleted sessions go to the trash.
+        </p>
         <div class="split">
           <div id="conv-list" class="list"></div>
           <div id="conv-detail" class="reader">
             <p class="muted">Select a conversation to read it.</p>
           </div>
         </div>
+      </section>
+
+      <section class="panel" data-panel="server">
+        <div class="panel-head"><h2>Models &amp; GPUs</h2>
+          <div class="panel-actions">
+            <button id="srv-start" class="btn" type="button">Start server</button>
+            <button id="srv-stop" class="btn" type="button">Stop</button>
+            <button id="srv-restart" class="btn" type="button">Restart</button>
+            <button id="srv-logs" class="btn" type="button">Log</button>
+          </div>
+        </div>
+        <div id="srv-status" class="status-line muted small"></div>
+        <div id="srv-progress" class="status-line small hidden"></div>
+        <div class="form" style="margin-bottom:14px">
+          <div class="field">
+            <div class="field-label">
+              <span class="name">Start at login</span>
+              <span class="help">Runs llama.cpp as the <code>leslie-llama</code> user service and loads the Everyday model when you log in.</span>
+            </div>
+            <div class="field-control"><label class="switch"><input type="checkbox" id="srv-enabled" /><span class="slider"></span></label></div>
+          </div>
+        </div>
+        <div id="srv-gpus" class="cards" style="margin-bottom:14px"></div>
+        <div id="srv-profiles" class="cards"></div>
+        <pre id="srv-log" class="srv-log hidden"></pre>
       </section>
 
       <section class="panel" data-panel="system">
@@ -135,6 +166,7 @@
   <div id="toast" class="hidden"></div>
 
   <datalist id="model-options"></datalist>
+  <datalist id="pi-model-options"></datalist>
 
   <script src="settings.js"></script>
 </body>

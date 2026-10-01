@@ -3,12 +3,48 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('leslie', {
-  sendMessage: (text, mentions) => ipcRenderer.invoke('agent:message', { text, mentions: mentions || [] }),
+  sendMessage: (text, mentions, images) =>
+    ipcRenderer.invoke('agent:message', { text, mentions: mentions || [], images: images || [] }),
+
+  recordingState: () => ipcRenderer.invoke('recording:state'),
+  stopRecording: () => ipcRenderer.invoke('recording:stop'),
+  onRecording: (cb) => {
+    const l = (_e, state) => cb(state || {});
+    ipcRenderer.on('recording:state', l);
+    return () => ipcRenderer.removeListener('recording:state', l);
+  },
+  getEngine: () => ipcRenderer.invoke('engine:get'),
+  onEngine: (cb) => {
+    const l = (_e, engine) => cb(engine);
+    ipcRenderer.on('engine:changed', l);
+    return () => ipcRenderer.removeListener('engine:changed', l);
+  },
+  /** Run a pi backend command (model, thinking, compact, fork, …). Resolves { ok, data | error }. */
+  pi: (name, args) => ipcRenderer.invoke('pi:command', { name, args }),
+  piUiResponse: (id, payload) => ipcRenderer.invoke('pi:ui-response', { id, payload }),
+  piBash: (command, excludeFromContext) => ipcRenderer.invoke('pi:bash', { command, excludeFromContext }),
+  onPiBashChunk: (cb) => {
+    const l = (_e, delta) => cb(delta);
+    ipcRenderer.on('pi:bash-chunk', l);
+    return () => ipcRenderer.removeListener('pi:bash-chunk', l);
+  },
+  /** pi session events: state, queue, compaction, retry, ui dialogs, notify, status, session. */
+  onPiEvent: (cb) => {
+    const l = (_e, ev) => cb(ev || {});
+    ipcRenderer.on('pi:event', l);
+    return () => ipcRenderer.removeListener('pi:event', l);
+  },
   suggestPaths: (query) => ipcRenderer.invoke('fs:suggest', query),
   onAgentChunk: (callback) => {
     const listener = (_event, delta) => callback(delta);
     ipcRenderer.on('agent:chunk', listener);
     return () => ipcRenderer.removeListener('agent:chunk', listener);
+  },
+  /** pi delivered a queued (steer / follow-up) message into the running turn. */
+  onUserMessageDelivered: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('agent:user-message', listener);
+    return () => ipcRenderer.removeListener('agent:user-message', listener);
   },
   onAgentThink: (callback) => {
     const listener = (_event, delta) => callback(delta);
@@ -68,7 +104,25 @@ contextBridge.exposeInMainWorld('leslie', {
   setVoiceActive: (on) => ipcRenderer.send('voice:set-active', on),
   voiceListenOnce: () => ipcRenderer.send('voice:listen-once'),
 
-  openSettings: () => ipcRenderer.send('settings:open'),
+  openSettings: (panel) => ipcRenderer.send('settings:open', panel),
+  /** Model server (llama.cpp) — each resolves { ok, data | error }. */
+  server: {
+    status: () => ipcRenderer.invoke('server:status'),
+    switchTo: (profile) => ipcRenderer.invoke('server:switch', profile),
+    service: (action) => ipcRenderer.invoke('server:service', action),
+    unload: () => ipcRenderer.invoke('server:unload'),
+    logs: () => ipcRenderer.invoke('server:logs'),
+    settings: () => ipcRenderer.invoke('server:settings'),
+    save: (patch) => ipcRenderer.invoke('server:save', patch),
+    models: () => ipcRenderer.invoke('server:models'),
+    /** { type: 'status', status } | { type: 'progress', text } */
+    onEvent: (cb) => {
+      const l = (_e, ev) => cb(ev || {});
+      ipcRenderer.on('server:event', l);
+      return () => ipcRenderer.removeListener('server:event', l);
+    }
+  },
+
 
   getAccent: () => ipcRenderer.invoke('theme:get'),
   onTheme: (cb) => ipcRenderer.on('theme:changed', (_e, color) => cb(color)),

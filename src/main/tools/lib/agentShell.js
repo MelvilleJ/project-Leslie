@@ -58,13 +58,34 @@ function isAllowed(command) {
   return getEffectiveAllowlist().some((prefix) => lower.startsWith(prefix));
 }
 
+// Commands that only open or close applications. Assistant mode runs these
+// without asking; they must be a single command (no chaining, pipes or
+// substitution) and still pass the deny list.
+const APP_CONTROL = new Set(['pkill', 'killall', 'kill', 'gtk-launch', 'xdg-open', 'steam']);
+
+function isAppControl(command) {
+  let cmd = String(command || '').trim();
+  if (!cmd || getDenyPatterns().some((re) => re.test(cmd))) return false;
+  // Allow the usual "detach and silence" wrapping around a launch.
+  cmd = cmd
+    .replace(/^(nohup|setsid)\s+/, '')
+    .replace(/\s*(>\s*\/dev\/null)?\s*(2>&1|2>\s*\/dev\/null)?\s*&?\s*$/, '')
+    .trim();
+  if (/[;&|<>`\n]|\$\(/.test(cmd)) return false;
+  const [bin, sub] = cmd.split(/\s+/);
+  if (bin === 'flatpak') return sub === 'run' || sub === 'kill';
+  return APP_CONTROL.has(bin);
+}
+
 /**
  * Decide whether `command` is cleared to run. Allowlisted commands pass
- * immediately; anything else asks the user through ctx.confirm and resolves to
- * their choice. Returns false if there's no way to ask (no confirm channel).
+ * immediately, as do open/close-app commands in assistant mode; anything else
+ * asks the user through ctx.confirm and resolves to their choice. Returns false
+ * if there's no way to ask (no confirm channel).
  */
 async function gate(command, ctx, explanation) {
   if (isAllowed(command)) return true;
+  if (config.taskMode && isAppControl(command)) return true;
   if (!ctx || typeof ctx.confirm !== 'function') return false;
   const lines = ['LESLIE wants to run this command:', '', command];
   if (explanation) lines.push('', explanation);
@@ -100,4 +121,4 @@ function execShell(command) {
   });
 }
 
-module.exports = { isAllowed, gate, execShell };
+module.exports = { isAllowed, isAppControl, gate, execShell };

@@ -1,0 +1,16 @@
+.sprite {
+  display: inline-block;
+  background: url('spritesheet.png') no-repeat;
+  width: 288px;
+  height: 560px;
+}
+.sprite-0 { background-position: -0px -0px; }
+.sprite-1 { background-position: -288px -0px; }
+.sprite-2 { background-position: -576px -0px; }
+.sprite-3 { background-position: -864px -0px; }
+.sprite-4 { background-position: -0px -560px; }
+.sprite-5 { background-position: -288px -560px; }
+.sprite-6 { background-position: -576px -560px; }
+.sprite-7 { background-position: -864px -560px; }
+.sprite-8 { background-position: -0px -1120px; }
+.sprite-9 { background-position: -288px -1120px; }

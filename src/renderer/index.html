@@ -21,20 +21,30 @@
       <div id="composer">
         <div id="mention-menu" class="hidden" role="listbox"></div>
         <div id="command-menu" class="hidden" role="listbox"></div>
+        <div id="picker-menu" class="hidden" role="listbox"></div>
+        <div id="attachments" class="hidden"></div>
         <div id="input-row">
-          <input id="input" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="Say something… (@ files, /help)" />
+          <textarea id="input" rows="1" autocomplete="off" spellcheck="false"
+                    placeholder="Say something… (@ files, /help)"></textarea>
           <div id="input-actions">
             <button id="agent-toggle" title="Mode: click to switch (Chat → Plan → Agent)"><i class="fa-solid fa-comment" aria-hidden="true"></i></button>
             <button id="mic" title="Dictate (push to talk)"><i class="fa-solid fa-microphone" aria-hidden="true"></i></button>
             <button id="settings-btn" title="Settings &amp; past conversations"><i class="fa-solid fa-gear" aria-hidden="true"></i></button>
+            <div id="pi-bar" class="hidden">
+              <button id="pi-model" class="pi-chip" title="Model — click to switch"></button>
+              <button id="pi-thinking" class="pi-chip hidden" title="Thinking level — click to change"></button>
+              <button id="pi-context" class="pi-chip hidden" title="Context used — click for session stats"></button>
+              <span id="pi-queue" class="pi-chip hidden" title="Queued messages"></span>
+            </div>
             <button id="send-btn" title="Send"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>
           </div>
         </div>
+        <div id="pi-status" class="hidden"></div>
       </div>
     </section>
 
     <aside id="stage">
+      <button id="rec-indicator" class="hidden" title="Recording the screen — click to stop"></button>
       <div id="avatar" class="sprite"></div>
       <div id="status"></div>
     </aside>

@@ -10,7 +10,9 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "pack": "npm run build:voice && electron-builder --dir",
-    "dist": "npm run build:voice && electron-builder --win nsis"
+    "dist": "npm run build:voice && electron-builder --win nsis",
+    "build:linux": "npm run build:voice && electron-builder --linux dir",
+    "install:linux": "npm run build:linux && bash scripts/install-linux.sh"
   },
   "keywords": [
     "electron",
@@ -29,11 +31,25 @@
     "productName": "LESLIE",
     "files": [
       "src/**",
+      "!src/SampleRepos/**",
       "assets/**",
-      "scripts/**",
+      "bin/**",
       "package.json",
       "node_modules/**"
     ],
+    "asarUnpack": [
+      "src/pi-extension/**",
+      "src/main/server/**",
+      "bin/**"
+    ],
+    "linux": {
+      "target": [
+        "dir"
+      ],
+      "executableName": "leslie",
+      "icon": "assets/icons",
+      "category": "Utility"
+    },
     "win": {
       "target": [
         "nsis",

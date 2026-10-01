@@ -9,7 +9,11 @@ const KEYWORD_HINTS = [
   [['research', 'compare', 'comparison', 'in depth', 'in-depth', 'detailed', 'sources', 'how to', 'how do'], ['deep_search']],
   [['open', 'show', 'visit', 'go to', 'website', 'url', 'webpage', 'page', '.com', '.org', 'http'], ['open_url']],
   [['browse', 'search results', 'see results', 'look something up'], ['open_search']],
-  [['launch', 'open app', 'start program', 'run app', 'calculator', 'notepad', 'browser', 'spotify', 'app'], ['open_app']],
+  [['record', 'recording', 'screen record', 'capture video', 'stop recording'], ['screen_record']],
+  [['close', 'quit', 'exit', 'kill', 'stop app', 'shut down app'], ['close_app']],
+  [['power mode', 'everyday mode', 'switch model', 'smarter model', 'bigger model', 'both gpus', 'which model', 'model profile'], ['model_profile']],
+  [['screenshot', 'screen shot', 'capture screen', 'snip', 'print screen'], ['screenshot']],
+  [['launch', 'open app', 'start program', 'run app', 'play', 'game', 'steam', 'calculator', 'notepad', 'browser', 'spotify', 'app'], ['open_app']],
   [['run', 'execute', 'command', 'powershell', 'terminal', 'shell', 'mkdir', 'move file', 'delete', 'folder', 'script'], ['run_command']],
   [['install', 'winget', 'download app', 'get app', 'set up', 'uninstall'], ['install_software']],
   [

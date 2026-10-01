@@ -1,7 +1,5 @@
 'use strict';
 
-// tool (model-driven) and background extraction (agent/reflect.js), then injected
-
 const fs = require('node:fs');
 const path = require('node:path');
 const { app } = require('electron');

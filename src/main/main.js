@@ -2,9 +2,17 @@
 
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, session, shell, protocol, net, dialog } = require('electron');
 const path = require('node:path');
+
+// The packaged build is named "LESLIE"; keep using the same settings folder as `npm start`.
+if (app.isPackaged) app.setPath('userData', path.join(app.getPath('appData'), 'project-leslie'));
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const agent = require('./agent');
+const contextWindow = require('./contextWindow');
+const modelServer = require('./server/controller');
+const hyprland = require('./hyprland');
+const screenRecord = require('./tools/screenRecord');
+const { profileCommand } = require('./intents');
 const config = require('./config');
 const settings = require('./settings');
 const memory = require('./memory');
@@ -97,6 +105,11 @@ function createWindow() {
   companionWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   companionWindow.loadFile(path.join(ROOT, 'src', 'renderer', 'index.html'));
+  companionWindow.webContents.once('did-finish-load', () => placeCompanion());
+  if (!watchingHyprland) {
+    watchingHyprland = true;
+    hyprland.watch('LESLIE', () => placeCompanion());
+  }
 
   if (isDev) {
     companionWindow.webContents.openDevTools({ mode: 'detach' });
@@ -135,6 +148,12 @@ function broadcastAnimations() {
   }
 }
 
+let trayProfile = null;
+
+function switchProfileFromTray(profile) {
+  modelServer.switchTo(profile).catch((err) => toCompanion('pi:event', { type: 'notify', level: 'error', message: err.message }));
+}
+
 function buildTrayMenu() {
   const modeItem = (label, mode) => ({
     label,
@@ -143,13 +162,7 @@ function buildTrayMenu() {
     click: () => applyMode(mode)
   });
   return Menu.buildFromTemplate([
-    {
-      label: 'Show / Hide',
-      click: () => {
-        if (!companionWindow) return;
-        companionWindow.isVisible() ? companionWindow.hide() : companionWindow.show();
-      }
-    },
+    { label: 'Show / Hide', click: () => toggleCompanion() },
     { label: 'Settings…', click: () => showSettingsWindow() },
     {
       label: 'New conversation',
@@ -159,11 +172,21 @@ function buildTrayMenu() {
       }
     },
     {
+      label: 'Model',
+      submenu: [
+        { label: 'Everyday (RTX 3060)', type: 'radio', checked: trayProfile === 'everyday', click: () => switchProfileFromTray('everyday') },
+        { label: 'Power (both GPUs)', type: 'radio', checked: trayProfile === 'power', click: () => switchProfileFromTray('power') },
+        { type: 'separator' },
+        { label: 'Models & GPUs…', click: () => showSettingsWindow('server') }
+      ]
+    },
+    {
       label: 'Mode',
       submenu: [
         modeItem('Chat', 'chat'),
         modeItem('Plan (read-only, propose)', 'plan'),
-        modeItem('Agent (run commands)', 'agent')
+        modeItem('Agent (run commands)', 'agent'),
+        modeItem('Assistant (one-off tasks, no history)', 'assistant')
       ]
     },
     { type: 'separator' },
@@ -195,28 +218,35 @@ function buildTrayMenu() {
   ]);
 }
 
+const iconPath = (size) => path.join(ROOT, 'assets', 'icons', `leslie-${size}.png`);
+const APP_ICON = iconPath(256);
+
 function createTray() {
-  const icon = nativeImage
-    .createFromPath(path.join(ROOT, 'assets', 'spritesheet.png'))
-    .resize({ width: 16, height: 16 });
+  const icon = nativeImage.createFromPath(iconPath(32));
+  icon.addRepresentation({ scaleFactor: 2, buffer: fs.readFileSync(iconPath(64)) });
 
   tray = new Tray(icon);
+  tray.on('click', () => toggleCompanion());
   tray.setToolTip('LESLIE - desktop companion');
   tray.setContextMenu(buildTrayMenu());
 }
 
 function currentMode() {
   if (config.planMode) return 'plan';
+  if (config.taskMode) return 'assistant';
   if (config.agentMode) return 'agent';
   return 'chat';
 }
 
+// Assistant mode is agent mode's tools plus taskMode (no conversation history).
 function applyMode(mode) {
-  const m = ['chat', 'plan', 'agent'].includes(mode) ? mode : 'chat';
+  const m = ['chat', 'plan', 'agent', 'assistant'].includes(mode) ? mode : 'chat';
   config.planMode = m === 'plan';
-  config.agentMode = m === 'agent';
+  config.agentMode = m === 'agent' || m === 'assistant';
+  config.taskMode = m === 'assistant';
   settings.set('planMode', config.planMode);
   settings.set('agentMode', config.agentMode);
+  settings.set('taskMode', config.taskMode);
   if (tray) tray.setContextMenu(buildTrayMenu());
   toCompanion('agent:mode', currentMode());
   toSettings('agent:mode', currentMode());
@@ -225,6 +255,7 @@ function applyMode(mode) {
 
 function createDetailWindow() {
   detailWindow = new BrowserWindow({
+    icon: APP_ICON,
     width: 760,
     height: 640,
     show: false,
@@ -277,6 +308,7 @@ function showMemories() {
 
 function createSettingsWindow() {
   settingsWindow = new BrowserWindow({
+    icon: APP_ICON,
     width: 880,
     height: 680,
     minWidth: 560,
@@ -309,10 +341,16 @@ function createSettingsWindow() {
   });
 }
 
-function showSettingsWindow() {
+function showSettingsWindow(panel) {
   if (!settingsWindow || settingsWindow.isDestroyed()) createSettingsWindow();
   if (!settingsWindow.isVisible()) settingsWindow.show();
   settingsWindow.focus();
+  if (panel) {
+    const contents = settingsWindow.webContents;
+    const send = () => contents.send('settings:show-panel', panel);
+    if (contents.isLoading()) contents.once('did-finish-load', send);
+    else send();
+  }
   return settingsWindow;
 }
 
@@ -379,6 +417,17 @@ function toCompanion(channel, payload) {
   }
 }
 
+function onEngineChanged() {
+  const pi = agent.pi();
+  if (pi) pi.onUiEvent((ev) => {
+    toCompanion('pi:event', ev);
+    toSettings('pi:event', ev);
+  });
+  else agent.shutdown();
+  toCompanion('engine:changed', config.engine);
+  toSettings('engine:changed', config.engine);
+}
+
 function countSentences(text) {
   const t = (text || '').trim();
   if (!t) return 0;
@@ -434,7 +483,12 @@ ipcMain.handle('agent:message', async (event, payload) => {
   // Back-compat: payload may be a bare string or { text, mentions }.
   const text = typeof payload === 'string' ? payload : (payload && payload.text) || '';
   const mentions = (payload && payload.mentions) || [];
+  const images = (payload && payload.images) || [];
 
+  const profile = profileCommand(text);
+  if (profile) return switchProfileCommand(profile);
+
+  modelServer.turnStarted();
   try {
     const mentionContext = await buildMentionContext(mentions);
     const { reply, aborted } = await agent.sendMessage(text, (ev) => {
@@ -461,14 +515,33 @@ ipcMain.handle('agent:message', async (event, payload) => {
         case 'confirm':
           sender.send('agent:confirm', { id: ev.id, message: ev.message });
           break;
+        case 'user-message':
+          sender.send('agent:user-message');
+          break;
       }
-    }, mentionContext);
+    }, mentionContext, images);
 
     return { reply, aborted };
   } catch (err) {
     return { error: err && err.message ? err.message : String(err) };
+  } finally {
+    modelServer.turnEnded();
   }
 });
+
+// "power mode" / "everyday mode" — handled without the model so it is instant
+// and can't be misread; progress then shows as the model loads.
+async function switchProfileCommand(profile) {
+  const label = profile === 'power' ? 'Power' : 'Everyday';
+  try {
+    const st = await modelServer.status();
+    if (st.activeProfile === profile) return { reply: `${label} mode is already on.` };
+    modelServer.requestSwitch(profile);
+    return { reply: `Switching to ${label} mode — ${profile === 'power' ? 'about 20' : 'about 10'} seconds.` };
+  } catch (err) {
+    return { error: `Couldn't switch to ${label} mode: ${err.message}` };
+  }
+}
 
 ipcMain.on('agent:cancel', () => {
   agent.cancel();
@@ -490,6 +563,7 @@ ipcMain.handle('research:run', async (event, query) => {
   const sender = event.sender;
   const q = typeof query === 'string' ? query.trim() : '';
   if (!q) return { error: 'empty query' };
+  await contextWindow.refresh();
   const controller = new AbortController();
   researchAbort = controller;
   try {
@@ -518,6 +592,70 @@ ipcMain.handle('agent:confirm-response', (_event, { id, approved } = {}) => {
 });
 
 ipcMain.handle('agent:get-mode', () => currentMode());
+
+ipcMain.handle('engine:get', () => config.engine);
+
+screenRecord.onChange((state) => {
+  toCompanion('recording:state', state);
+  if (tray) tray.setToolTip(state.recording ? 'LESLIE — recording the screen' : 'LESLIE - desktop companion');
+});
+ipcMain.handle('recording:state', () => screenRecord.status());
+ipcMain.handle('recording:stop', () => screenRecord.stop());
+
+const settle = (promise) =>
+  promise.then((data) => ({ ok: true, data })).catch((err) => ({ ok: false, error: err && err.message ? err.message : String(err) }));
+
+ipcMain.handle('server:status', () => settle(modelServer.status()));
+ipcMain.handle('server:switch', (_event, profile) => settle(modelServer.switchTo(profile)));
+ipcMain.handle('server:service', (_event, action) => settle(modelServer.service(action)));
+ipcMain.handle('server:unload', () => settle(modelServer.unloadAll()));
+ipcMain.handle('server:logs', () => settle(modelServer.logs(80)));
+ipcMain.handle('server:settings', () => settle(Promise.resolve(modelServer.loadSettings())));
+ipcMain.handle('server:save', (_event, patch) => settle(Promise.resolve().then(() => modelServer.saveSettings(patch || {}))));
+ipcMain.handle('server:models', () => settle(Promise.resolve(modelServer.listModels())));
+
+modelServer.onEvent((ev) => {
+  if (ev.type === 'status') {
+    const active = ev.status.activeProfile;
+    if (active !== trayProfile && tray) {
+      trayProfile = active;
+      tray.setContextMenu(buildTrayMenu());
+    }
+  }
+  toCompanion('server:event', ev);
+  toSettings('server:event', ev);
+});
+
+function requirePi() {
+  const pi = agent.pi();
+  if (!pi) throw new Error('The pi engine is not active.');
+  return pi;
+}
+
+ipcMain.handle('pi:command', async (_event, { name, args } = {}) => {
+  try {
+    return { ok: true, data: await requirePi().command(name, args) };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  }
+});
+
+ipcMain.handle('pi:ui-response', (_event, { id, payload } = {}) => {
+  if (agent.pi()) agent.pi().respondUi(id, payload);
+  return { ok: true };
+});
+
+ipcMain.handle('pi:bash', async (event, { command, excludeFromContext } = {}) => {
+  const sender = event.sender;
+  try {
+    const data = await requirePi().runBash(String(command || ''), excludeFromContext, (delta) => {
+      if (!sender.isDestroyed()) sender.send('pi:bash-chunk', delta);
+    });
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  }
+});
 ipcMain.handle('agent:set-mode', (_event, mode) => applyMode(mode));
 
 ipcMain.handle('theme:get', () => getAccent());
@@ -531,6 +669,8 @@ ipcMain.handle('settings:get-all', () => ({
 ipcMain.handle('settings:set', (_event, { key, value } = {}) => {
   const res = configStore.set(key, value);
   if (res.ok) {
+    if (['baseURL', 'model', 'apiKey'].includes(key)) contextWindow.refresh({ force: true });
+    if (key === 'engine') onEngineChanged();
     if (configStore.VOICE_KEYS.includes(key)) reinitVoice();
     if (key === 'learningMode' && tray) tray.setContextMenu(buildTrayMenu());
   }
@@ -565,14 +705,23 @@ ipcMain.handle('models:test', async () => {
   }
 });
 
-ipcMain.handle('conv:list', () => conversations.list());
-ipcMain.handle('conv:get', (_event, id) => conversations.get(id));
+// On the pi engine the conversation list is pi's own session store, shared
+// with the pi terminal UI.
+ipcMain.handle('conv:list', () => (agent.pi() ? agent.pi().listSessions() : conversations.list()));
+ipcMain.handle('conv:get', (_event, id) => (agent.pi() ? agent.pi().getSession(id) : conversations.get(id)));
 ipcMain.handle('conv:resume', (_event, id) => {
   const ok = agent.resume(id);
   return { ok };
 });
-ipcMain.handle('conv:delete', (_event, id) => ({ ok: conversations.remove(id) }));
+ipcMain.handle('conv:delete', async (_event, id) => {
+  if (!agent.pi()) return { ok: conversations.remove(id) };
+  const file = await agent.pi().sessionFileFor(id);
+  if (!file) return { ok: false, error: 'Only saved, inactive sessions can be deleted.' };
+  await shell.trashItem(file);
+  return { ok: true };
+});
 ipcMain.handle('conv:clear', () => {
+  if (agent.pi()) return { ok: false, error: 'Delete pi sessions one at a time.' };
   conversations.clear();
   agent.reset();
   return { ok: true };
@@ -648,7 +797,7 @@ ipcMain.handle('anim:set-binding', (_event, { state, ids } = {}) => {
   return { ok: true, bindings, config: animations.getConfig() };
 });
 
-ipcMain.on('settings:open', () => showSettingsWindow());
+ipcMain.on('settings:open', (_event, panel) => showSettingsWindow(panel));
 
 ipcMain.on('window:set-expanded', (_event, expanded) => {
   if (!companionWindow || companionWindow.isDestroyed()) return;
@@ -658,10 +807,53 @@ ipcMain.on('window:set-expanded', (_event, expanded) => {
   const right = b.x + b.width;
   lastProgrammaticMove = Date.now();
   companionWindow.setBounds({ x: right - width, y: b.y, width, height: b.height });
+  // Wayland ignores the x above; re-anchor to the home display's corner.
+  placeCompanion();
 });
+
+let watchingHyprland = false;
+
+/** Pin the companion to its home display (Hyprland only; resolves false elsewhere). */
+function placeCompanion(previousFocus = null) {
+  if (!companionWindow || companionWindow.isDestroyed() || !companionWindow.isVisible()) return Promise.resolve(false);
+  const win = companionWindow;
+  return hyprland
+    .pinToMonitor({
+      pid: process.pid,
+      title: 'LESLIE',
+      monitor: config.homeMonitor,
+      size: () => (win.isDestroyed() ? { width: 0, height: 0 } : win.getBounds()),
+      previousFocus
+    })
+    .catch((err) => {
+      console.warn('[hyprland] placement failed:', err.message);
+      return false;
+    });
+}
+
+function toggleCompanion() {
+  if (!companionWindow || companionWindow.isDestroyed()) return;
+  if (companionWindow.isVisible()) companionWindow.hide();
+  else showCompanion();
+}
+
+/** Show the companion on its home display; `silent` leaves keyboard focus where it was. */
+async function showCompanion({ silent = false } = {}) {
+  if (!companionWindow || companionWindow.isDestroyed()) return;
+  const previousFocus = silent ? await hyprland.focusedWindow() : null;
+  if (!companionWindow.isVisible()) {
+    if (silent) companionWindow.showInactive();
+    else companionWindow.show();
+  }
+  await placeCompanion(previousFocus);
+}
 
 function redock() {
   if (!companionWindow || companionWindow.isDestroyed()) return;
+  if (hyprland.available() && config.homeMonitor) {
+    placeCompanion();
+    return;
+  }
   const b = companionWindow.getBounds();
   const { workArea } = screen.getDisplayMatching(b);
   const onScreen =
@@ -682,7 +874,7 @@ ipcMain.on('window:hide', () => {
 ipcMain.on('app:quit', () => app.quit());
 
 ipcMain.on('voice:wake', (_event, payload) => {
-  if (companionWindow) companionWindow.show();
+  showCompanion({ silent: true });
   toCompanion('leslie:voice-wake', payload || {});
 });
 ipcMain.on('voice:final', (_event, payload) => {
@@ -694,6 +886,15 @@ ipcMain.on('voice:status', (_event, payload) => {
 
 ipcMain.on('voice:set-active', (_event, value) => controlVoice('set-active', !!value));
 ipcMain.on('voice:listen-once', () => controlVoice('listen-once'));
+
+// Autostart plus the app launcher would otherwise give two mascots; a second
+// launch just brings the running one forward, or toggles it with `leslie --toggle`
+// (handy for a Hyprland keybind).
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0);
+} else {
+  app.on('second-instance', (_event, argv) => (argv.includes('--toggle') ? toggleCompanion() : showCompanion()));
+}
 
 app.whenReady().then(() => {
   protocol.handle('leslie-sprite', (request) => {
@@ -714,10 +915,15 @@ app.whenReady().then(() => {
 
   config.agentMode = settings.get('agentMode', config.agentMode);
   config.planMode = settings.get('planMode', config.planMode);
+  config.taskMode = settings.get('taskMode', config.taskMode);
   config.learningMode = settings.get('learningMode', config.learningMode);
   if (config.planMode) config.agentMode = false;
+  if (config.planMode || !config.agentMode) config.taskMode = false;
 
   configStore.applyPersisted();
+  contextWindow.refresh();
+  onEngineChanged();
+  modelServer.startup();
 
   createWindow();
   createDetailWindow();
@@ -731,6 +937,8 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   app.isQuitting = true;
+  agent.shutdown();
+  screenRecord.stop().catch(() => {});
 });
 
 app.on('window-all-closed', () => {

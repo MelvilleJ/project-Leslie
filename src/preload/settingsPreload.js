@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('settingsApi', {
   getConfig: () => ipcRenderer.invoke('settings:get-all'),
   /** Update one field; returns the coerced/applied value. */
   setConfig: (key, value) => ipcRenderer.invoke('settings:set', { key, value }),
-  /** Switch operating mode ('chat'|'plan'|'agent'); returns the applied mode. */
+  /** Switch operating mode ('chat'|'plan'|'agent'|'assistant'); returns the applied mode. */
   setMode: (mode) => ipcRenderer.invoke('agent:set-mode', mode),
   /** React to mode changes from elsewhere (tray, companion button). */
   onMode: (cb) => {
@@ -31,6 +31,40 @@ contextBridge.exposeInMainWorld('settingsApi', {
   },
 
   /** List models advertised by the configured server (/v1/models). */
+  /** Model server (llama.cpp) — each resolves { ok, data | error }. */
+  server: {
+    status: () => ipcRenderer.invoke('server:status'),
+    switchTo: (profile) => ipcRenderer.invoke('server:switch', profile),
+    service: (action) => ipcRenderer.invoke('server:service', action),
+    unload: () => ipcRenderer.invoke('server:unload'),
+    logs: () => ipcRenderer.invoke('server:logs'),
+    settings: () => ipcRenderer.invoke('server:settings'),
+    save: (patch) => ipcRenderer.invoke('server:save', patch),
+    models: () => ipcRenderer.invoke('server:models'),
+    /** { type: 'status', status } | { type: 'progress', text } */
+    onEvent: (cb) => {
+      const l = (_e, ev) => cb(ev || {});
+      ipcRenderer.on('server:event', l);
+      return () => ipcRenderer.removeListener('server:event', l);
+    }
+  },
+  onShowPanel: (cb) => {
+    const l = (_e, panel) => cb(panel);
+    ipcRenderer.on('settings:show-panel', l);
+    return () => ipcRenderer.removeListener('settings:show-panel', l);
+  },
+  getEngine: () => ipcRenderer.invoke('engine:get'),
+  onEngine: (cb) => {
+    const l = (_e, engine) => cb(engine);
+    ipcRenderer.on('engine:changed', l);
+    return () => ipcRenderer.removeListener('engine:changed', l);
+  },
+  pi: (name, args) => ipcRenderer.invoke('pi:command', { name, args }),
+  onPiEvent: (cb) => {
+    const l = (_e, ev) => cb(ev || {});
+    ipcRenderer.on('pi:event', l);
+    return () => ipcRenderer.removeListener('pi:event', l);
+  },
   listModels: () => ipcRenderer.invoke('models:list'),
   /** Probe the configured server; returns { ok } or { ok:false, error }. */
   testConnection: () => ipcRenderer.invoke('models:test'),

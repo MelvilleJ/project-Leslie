@@ -7,6 +7,7 @@ const { FORMAT_INSTRUCTIONS } = require('./streamTurn');
 const { runConversation } = require('./loop');
 const { extractMemories } = require('./reflect');
 const compaction = require('./compaction');
+const { TASK_MODE_DIRECTIVE } = require('./toolPolicy');
 
 /** @type {{ role: string, content: string }[]} */
 let history = [];
@@ -113,7 +114,7 @@ function modeCapabilities() {
   return config.agentMode ? agentCapabilities() : chatCapabilities();
 }
 
-async function sendMessage(text, onEvent, contextText) {
+function systemContent() {
   const parts = [config.systemPrompt];
   if (config.learningMode) {
     const remembered = memory.format();
@@ -121,9 +122,32 @@ async function sendMessage(text, onEvent, contextText) {
   }
   const caps = modeCapabilities();
   if (caps) parts.push(caps);
+  if (config.taskMode) parts.push(TASK_MODE_DIRECTIVE);
   if (config.detailedResponses) parts.push(FORMAT_INSTRUCTIONS);
-  const systemContent = parts.join('\n\n');
+  return parts.join('\n\n');
+}
 
+async function runMessages(messages, onEvent, text) {
+  const controller = new AbortController();
+  currentAbort = controller;
+  try {
+    return await runConversation(messages, onEvent, makeCtx(onEvent, controller.signal), text, controller.signal);
+  } finally {
+    if (currentAbort === controller) currentAbort = null;
+  }
+}
+
+/** Assistant mode: run one task with no history, and keep nothing afterwards. */
+async function runTask(text, onEvent, contextText) {
+  const messages = [
+    { role: 'system', content: systemContent() },
+    { role: 'user', content: contextText ? `${contextText}\n\n${text}` : text }
+  ];
+  const { summary, aborted } = await runMessages(messages, onEvent, text);
+  return { reply: summary.trim(), aborted };
+}
+
+async function sendMessage(text, onEvent, contextText) {
   // "@"-mention attachments (file/folder contents) ride along with this turn's
   // user message so the model can see them, but only the clean text is stored in
   // history — keeping the transcript readable and within the history window.
@@ -132,23 +156,12 @@ async function sendMessage(text, onEvent, contextText) {
   history = await compaction.maybeCompact(history);
 
   const messages = [
-    { role: 'system', content: systemContent },
+    { role: 'system', content: systemContent() },
     ...history,
     { role: 'user', content: userContent }
   ];
 
-  const controller = new AbortController();
-  currentAbort = controller;
-  let summary = '';
-  let details = '';
-  let aborted = false;
-  try {
-    ({ summary, details, aborted } = await runConversation(
-      messages, onEvent, makeCtx(onEvent, controller.signal), text, controller.signal
-    ));
-  } finally {
-    if (currentAbort === controller) currentAbort = null;
-  }
+  const { summary, details, aborted } = await runMessages(messages, onEvent, text);
 
   const stored = [summary.trim(), details.trim()].filter(Boolean).join('\n\n') || summary;
   history.push({ role: 'user', content: text }, { role: 'assistant', content: stored });
@@ -211,4 +224,4 @@ function resume(id) {
   return true;
 }
 
-module.exports = { sendMessage, reset, resolveConfirm, resume, cancel, recordResearch };
+module.exports = { sendMessage, runTask, reset, resolveConfirm, resume, cancel, recordResearch };

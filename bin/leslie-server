@@ -1,0 +1,135 @@
+#!/usr/bin/env node
+'use strict';
+
+// Terminal control for LESLIE's model server.
+//   leslie-server                 interactive screen
+//   leslie-server <command>       status | everyday | power | unload | start | stop | restart | enable | disable | logs
+
+const readline = require('node:readline');
+const server = require('../src/main/server/llamaServer');
+
+const c = {
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  yellow: (s) => `\x1b[33m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
+  purple: (s) => `\x1b[38;5;141m${s}\x1b[0m`
+};
+
+function bar(used, total, width = 24) {
+  const pct = total ? used / total : 0;
+  const fill = Math.round(pct * width);
+  const color = pct >= 0.9 ? c.red : pct >= 0.7 ? c.yellow : c.green;
+  return `${color('█'.repeat(fill))}${c.dim('░'.repeat(width - fill))} ${(used / 1024).toFixed(1)}/${(total / 1024).toFixed(1)} GB`;
+}
+
+function render(st, message) {
+  const lines = [c.purple(c.bold(' LESLIE model server')), ''];
+  const svc = st.service;
+  lines.push(
+    st.reachable
+      ? ` ${c.green('●')} running at ${st.url}${svc.active === 'active' ? c.dim('  (leslie-llama service)') : c.dim('  (started outside LESLIE)')}`
+      : ` ${c.red('○')} stopped`
+  );
+  lines.push(` ${c.dim('start at login:')} ${svc.enabled ? c.green('yes') : 'no'}`, '');
+  for (const g of st.gpus) lines.push(` ${g.name.padEnd(10)} ${bar(g.usedMiB, g.totalMiB)}`);
+  lines.push('');
+  st.profiles.forEach((p, i) => {
+    const state = p.state === 'loaded' ? c.green('loaded') : p.state === 'loading' ? c.yellow('loading…') : c.dim(p.state);
+    const mark = st.activeProfile === p.name ? c.purple('▶') : ' ';
+    lines.push(` ${mark} ${c.bold(`[${i + 1}] ${p.label}`)}  ${p.model}  ${state}`);
+    lines.push(`       ${c.dim(p.description)}`);
+  });
+  lines.push('');
+  lines.push(c.dim(' [1] everyday  [2] power  [u] unload  [s] start/stop  [r] restart  [e] login toggle  [l] log  [q] quit'));
+  if (message) lines.push('', ` ${message}`);
+  process.stdout.write(`\x1b[2J\x1b[H${lines.join('\n')}\n`);
+}
+
+async function interactive() {
+  let message = '';
+  let busy = false;
+  let st = await server.status();
+  const redraw = async () => {
+    if (busy) return;
+    st = await server.status();
+    render(st, message);
+  };
+  const act = async (label, fn) => {
+    if (busy) return;
+    busy = true;
+    message = c.yellow(`${label}…`);
+    render(st, message);
+    try {
+      await fn((text) => render(st, c.yellow(text)));
+      message = c.green(`${label} — done`);
+    } catch (err) {
+      message = c.red(err.message);
+    }
+    busy = false;
+    redraw();
+  };
+
+  readline.emitKeypressEvents(process.stdin);
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+  const timer = setInterval(redraw, 2000);
+  process.stdin.on('keypress', (_str, key) => {
+    if (!key) return;
+    if (key.name === 'q' || (key.ctrl && key.name === 'c')) {
+      clearInterval(timer);
+      process.stdout.write('\x1b[2J\x1b[H');
+      process.exit(0);
+    }
+    if (key.name === '1') act('Loading Everyday', (p) => server.switchProfile('everyday', p));
+    if (key.name === '2') act('Loading Power', (p) => server.switchProfile('power', p));
+    if (key.name === 'u') act('Unloading', () => server.unloadAll());
+    if (key.name === 's') act(st.reachable ? 'Stopping server' : 'Starting server', () => server.service(st.reachable ? 'stop' : 'start'));
+    if (key.name === 'r') act('Restarting server', () => server.service('restart'));
+    if (key.name === 'e') act(st.service.enabled ? 'Disabling start at login' : 'Enabling start at login', () => server.service(st.service.enabled ? 'disable' : 'enable'));
+    if (key.name === 'l') {
+      server.logs(25).then((text) => {
+        message = `${c.dim('── last log lines ──')}\n${text.trim()}`;
+        render(st, message);
+      });
+    }
+  });
+  render(st, message);
+}
+
+async function once(command) {
+  const progress = (text) => console.log(text);
+  switch (command) {
+    case 'status': {
+      const st = await server.status();
+      console.log(JSON.stringify({ running: st.reachable, url: st.url, profile: st.activeProfile, loaded: st.loaded, service: st.service, gpus: st.gpus }, null, 2));
+      return;
+    }
+    case 'everyday':
+    case 'power':
+      await server.switchProfile(command, progress);
+      return;
+    case 'unload':
+      await server.unloadAll();
+      return;
+    case 'start':
+    case 'stop':
+    case 'restart':
+    case 'enable':
+    case 'disable':
+      await server.service(command);
+      return;
+    case 'logs':
+      console.log(await server.logs(80));
+      return;
+    default:
+      console.error('usage: leslie-server [status|everyday|power|unload|start|stop|restart|enable|disable|logs]');
+      process.exit(2);
+  }
+}
+
+const command = process.argv[2];
+(command ? once(command) : interactive()).catch((err) => {
+  console.error(c.red(err.message));
+  process.exit(1);
+});

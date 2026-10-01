@@ -1,15 +1,23 @@
 'use strict';
 
+// The source checkout's .env, or ~/.config/project-leslie/.env for the installed app.
 (function loadDotEnv() {
   const fs = require('node:fs');
+  const os = require('node:os');
   const path = require('node:path');
-  const file = path.join(__dirname, '..', '..', '.env');
+  const candidates = [
+    path.join(__dirname, '..', '..', '.env'),
+    path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'project-leslie', '.env')
+  ];
   let text;
-  try {
-    text = fs.readFileSync(file, 'utf8');
-  } catch {
-    return;
+  for (const file of candidates) {
+    try {
+      text = fs.readFileSync(file, 'utf8');
+      break;
+    } catch {
+    }
   }
+  if (text === undefined) return;
   for (let line of text.split(/\r?\n/)) {
     line = line.trim();
     if (!line || line.startsWith('#')) continue;
@@ -31,6 +39,26 @@
 const env = process.env;
 
 module.exports = {
+  // 'pi' drives the pi coding agent (`pi --mode rpc`) with Leslie as its GUI;
+  // 'native' runs Leslie's built-in agent loop.
+  engine: env.LESLIE_ENGINE === 'native' ? 'native' : 'pi',
+  piCommand: env.LESLIE_PI_COMMAND || 'pi',
+  // Blank uses pi's own default model; 'leslie' uses the server configured below.
+  piModel: env.LESLIE_PI_MODEL || '',
+  piCwd: env.LESLIE_PI_CWD || '',
+
+  // LESLIE runs llama.cpp (the leslie-llama user service) and points itself at
+  // it; off = use LESLIE_BASE_URL / LESLIE_MODEL as given.
+  serverManaged: env.LESLIE_SERVER_MANAGED !== '0',
+
+  // Hyprland monitor the companion lives on (see `hyprctl monitors`); blank = anywhere.
+  homeMonitor: env.LESLIE_HOME_MONITOR ?? 'HDMI-A-1',
+
+  // Monitor that screen_record / screenshot capture, and the VAAPI render node
+  // wf-recorder hardware-encodes on (renderD128 = the Radeon).
+  recordMonitor: env.LESLIE_RECORD_MONITOR || 'DP-1',
+  recordRenderNode: env.LESLIE_RECORD_RENDER_NODE || '/dev/dri/renderD128',
+
   baseURL: env.LESLIE_BASE_URL || 'http://192.168.100.224:8081/v1',
 
   model: env.LESLIE_MODEL || 'local-model',
@@ -42,9 +70,6 @@ module.exports = {
     'You are LESLIE, a friendly desktop companion. Reply in a warm, concise, conversational way - usually one or two short sentences.',
 
   temperature: Number(env.LESLIE_TEMPERATURE ?? 0.7),
-
-  // Agent loop trims requests to fit; set to your server's actual n_ctx.
-  contextTokens: Number(env.LESLIE_CONTEXT_TOKENS ?? 4096),
 
   historyLimit: Number(env.LESLIE_HISTORY_LIMIT ?? 20),
 
@@ -65,6 +90,9 @@ module.exports = {
   fsWriteMaxBytes: Number(env.LESLIE_FS_WRITE_MAX_BYTES ?? 524288),
 
   planMode: env.LESLIE_PLAN_MODE === '1',
+
+  // Assistant mode: every message is a one-off task with no conversation history.
+  taskMode: false,
 
   learningMode: env.LESLIE_LEARNING !== '0',
   learnEvery: Number(env.LESLIE_LEARN_EVERY ?? 3),
@@ -89,13 +117,8 @@ module.exports = {
   // Defaults are tuned down from the reference implementation for a single
   // local model on one GPU — fewer rounds and lower concurrency so a run
   // finishes in a few minutes rather than ten.
-  //
-  // researchContextTokens is the target model's context window. Every
-  // internal call (query gen, extraction, synthesis, final report) sizes its
-  // prompt content and requested completion length against this, so research
-  // stays usable on small local-model context windows instead of throwing
-  // "exceeds context size" errors. Set it to match your actual server's n_ctx.
-  researchContextTokens: Number(env.LESLIE_RESEARCH_CONTEXT_TOKENS ?? 4096),
+  // Research calls size themselves against researchContextTokens, which (like
+  // contextTokens) is read from the llama.cpp server — see contextWindow.js.
   researchMaxRounds: Number(env.LESLIE_RESEARCH_MAX_ROUNDS ?? 6),
   researchMinRounds: Number(env.LESLIE_RESEARCH_MIN_ROUNDS ?? 2),
   researchMaxEmptyRounds: Number(env.LESLIE_RESEARCH_MAX_EMPTY_ROUNDS ?? 2),
@@ -145,11 +168,15 @@ module.exports = {
 
   voiceEnabled: env.LESLIE_VOICE !== '0',
   wakeWord: env.LESLIE_WAKE_WORD || 'hey leslie',
-  sttBackend: (env.LESLIE_STT_BACKEND || 'local').toLowerCase(),
+  // 'server' = an OpenAI-style /audio/transcriptions endpoint (scripts/setup-whisper.sh
+  // runs whisper large-v3-turbo there); 'local' = Whisper in the app via WASM (slow, tiny).
+  sttBackend: (env.LESLIE_STT_BACKEND || 'server').toLowerCase(),
   sttModel: env.LESLIE_STT_MODEL || 'Xenova/whisper-tiny.en',
-  sttServerUrl: env.LESLIE_STT_SERVER_URL || 'http://localhost:8080/v1',
-  sttServerModel: env.LESLIE_STT_SERVER_MODEL || 'whisper-1',
+  sttServerUrl: env.LESLIE_STT_SERVER_URL || 'http://127.0.0.1:8178/v1',
+  sttServerModel: env.LESLIE_STT_SERVER_MODEL || 'large-v3-turbo',
   sttServerApiKey: env.LESLIE_STT_SERVER_API_KEY || '',
   wakeTimeoutMs: Number(env.LESLIE_WAKE_TIMEOUT_MS ?? 8000),
   voiceAutoSend: env.LESLIE_VOICE_AUTOSEND !== '0'
 };
+
+require('./contextWindow').install(module.exports);

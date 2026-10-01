@@ -4,6 +4,24 @@ const config = require('./config');
 const settings = require('./settings');
 
 const SCHEMA = [
+  { key: 'engine', type: 'select', group: 'Connection', label: 'Agent engine',
+    options: [
+      { value: 'pi', label: 'pi coding agent' },
+      { value: 'native', label: 'LESLIE (built-in)' }
+    ],
+    help: 'pi adds sessions, compaction, retries, skills, extensions and every pi provider. Needs pi installed.' },
+  { key: 'piModel', type: 'string', group: 'Connection', label: 'pi model',
+    dependsOn: { key: 'engine', value: 'pi' },
+    help: "Blank = pi's default model. 'leslie' = the server below. Or provider/model, e.g. llama.cpp/Qwen3." },
+  { key: 'piCommand', type: 'string', group: 'Connection', label: 'pi command',
+    dependsOn: { key: 'engine', value: 'pi' },
+    help: 'Path to the pi executable if it is not on PATH.' },
+  { key: 'piCwd', type: 'string', group: 'Connection', label: 'pi working folder',
+    dependsOn: { key: 'engine', value: 'pi' },
+    help: 'Where pi runs and stores sessions. Blank = your home folder.' },
+
+  { key: 'serverManaged', type: 'boolean', group: 'Connection', label: 'LESLIE manages the model server',
+    help: 'Runs llama.cpp for you (Settings → Models & GPUs) and uses it automatically. Turn off to use the URL and model below.' },
   { key: 'baseURL', type: 'string', group: 'Connection', label: 'Server base URL',
     help: 'OpenAI-compatible endpoint, including the /v1 suffix.' },
   { key: 'model', type: 'string', group: 'Connection', label: 'Model',
@@ -16,12 +34,10 @@ const SCHEMA = [
   { key: 'systemPrompt', type: 'text', group: 'Generation', label: 'System prompt',
     help: "LESLIE's persona. Kept short — replies show in a small bubble." },
   { key: 'temperature', type: 'number', group: 'Generation', label: 'Temperature',
-    min: 0, max: 2, step: 0.05 },
-  { key: 'contextTokens', type: 'number', group: 'Generation', label: 'Context window (n_ctx)',
-    min: 512, max: 200000, step: 256,
-    help: "Your model server's context size. Requests are trimmed to fit; the reply uses whatever room is left." },
+    min: 0, max: 2, step: 0.05, dependsOn: { key: 'engine', value: 'native' } },
   { key: 'historyLimit', type: 'number', group: 'Generation', label: 'History messages kept',
-    min: 0, max: 200, step: 2, help: 'How many past messages stay in context.' },
+    min: 0, max: 200, step: 2, help: 'How many past messages stay in context.',
+    dependsOn: { key: 'engine', value: 'native' } },
 
   { key: 'osTarget', type: 'select', group: 'Behaviour', label: 'Operating system',
     options: [
@@ -38,10 +54,12 @@ const SCHEMA = [
     dependsOn: { key: 'osTarget', value: 'linux' },
     help: 'Selects the package manager used by the install_software tool.' },
 
+  { key: 'homeMonitor', type: 'string', group: 'Behaviour', label: 'Home display',
+    help: 'Hyprland monitor LESLIE always appears on, pinned across its workspaces (e.g. HDMI-A-1). Blank = wherever she opens.' },
   { key: 'toolsEnabled', type: 'boolean', group: 'Behaviour', label: 'Enable tools',
     help: 'Web search, deep search, open URL, etc. Needs a tool-capable model.' },
   { key: 'maxToolCalls', type: 'number', group: 'Behaviour', label: 'Max tool calls per message',
-    min: 0, max: 30, step: 1 },
+    min: 0, max: 30, step: 1, dependsOn: { key: 'engine', value: 'native' } },
   { key: 'detailedResponses', type: 'boolean', group: 'Behaviour', label: 'Detailed answers (side window)' },
   { key: 'detailSentenceThreshold', type: 'number', group: 'Behaviour',
     label: 'Sentences before moving to details', min: 1, max: 20, step: 1 },
@@ -50,6 +68,15 @@ const SCHEMA = [
   { key: 'searchResults', type: 'number', group: 'Behaviour', label: 'Search results fed back',
     min: 1, max: 20, step: 1 },
 
+  { key: 'sttBackend', type: 'select', group: 'Voice', label: 'Speech recognition',
+    options: [
+      { value: 'server', label: 'Whisper server (large-v3-turbo on the GPU)' },
+      { value: 'local', label: 'In-app Whisper (small model, CPU)' }
+    ],
+    help: 'The server is set up by scripts/setup-whisper.sh (leslie-whisper service).' },
+  { key: 'sttServerUrl', type: 'string', group: 'Voice', label: 'Speech server URL',
+    dependsOn: { key: 'sttBackend', value: 'server' },
+    help: 'OpenAI-style endpoint, including /v1.' },
   { key: 'voiceAutoSend', type: 'boolean', group: 'Voice', label: 'Auto-send dictated text' },
   { key: 'wakeWord', type: 'string', group: 'Voice', label: 'Wake word',
     help: 'Matching is fuzzy and keys on the last word.' }

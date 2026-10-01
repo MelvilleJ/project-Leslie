@@ -4,16 +4,8 @@ const fs = require('node:fs');
 const fsp = fs.promises;
 const path = require('node:path');
 const config = require('../config');
-const { resolvePath } = require('./lib/osPaths');
+const { resolvePath, underRoots } = require('./lib/osPaths');
 const { InvalidArgumentsError } = require('../agent/errors');
-
-function underRoots(target, roots) {
-  if (!roots.length) return true;
-  return roots.some((root) => {
-    const r = path.resolve(root);
-    return target === r || target.startsWith(r + path.sep);
-  });
-}
 
 function preview(target, content, exists, oldSize) {
   const bytes = Buffer.byteLength(content, 'utf8');

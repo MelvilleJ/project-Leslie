@@ -1,6 +1,6 @@
 'use strict';
 
-const MODES = ['chat', 'plan', 'agent'];
+const MODES = ['chat', 'plan', 'agent', 'assistant'];
 
 module.exports = {
   name: 'set_mode',
@@ -8,16 +8,17 @@ module.exports = {
   description:
     "Switch LESLIE's operating mode. 'chat' is conversation only; 'plan' is read-only planning " +
     '(no changes to the computer); \'agent\' can run shell commands, install software, and change ' +
-    'files. Use when the user asks to switch modes ("switch to agent mode", "go into plan mode") or ' +
+    'files; \'assistant\' runs each request as a one-off task without keeping the conversation. Use when the user asks to switch modes ("switch to agent mode", "go into plan mode") or ' +
     'when a task the user asked for needs a mode you are not in — in that case switch, then continue. ' +
-    'The change applies from the next turn.',
+    'The change applies from the next turn. NOT for "power mode" or "everyday mode" — those are ' +
+    'model profiles; use model_profile for them.',
   parameters: {
     type: 'object',
     properties: {
       mode: {
         type: 'string',
         enum: MODES,
-        description: "The mode to switch to: 'chat', 'plan', or 'agent'."
+        description: "The mode to switch to: 'chat', 'plan', 'agent', or 'assistant'."
       }
     },
     required: ['mode']
