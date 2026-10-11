@@ -71,6 +71,7 @@ function createBridge({ getTurn, systemSections }) {
     },
 
     async gateWrite({ path: target, toolName }) {
+      if (config.agentMode && !config.taskMode) return { allowed: true };
       if (underRoots(path.resolve(policy.cwd(), String(target || '')), config.fsWriteRoots)) return { allowed: true };
       const approved = await turnCtx().confirm(
         `LESLIE wants to ${toolName === 'edit' ? 'edit' : 'write'} a file outside your allowed folders:\n\n${target}`

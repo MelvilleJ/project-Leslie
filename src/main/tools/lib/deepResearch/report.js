@@ -1,7 +1,7 @@
 'use strict';
 
 // Formats a completed research run into the text fed back to the model as the
-// tool result (see loop.js appendResults). Unlike odysseus — where this report
+// tool result. Unlike odysseus — where this report
 // can be shown to the user directly — Leslie's tool output is always re-read
 // by the model in the very next turn to write its reply, in the SAME
 // constrained context window as the system prompt and history. So this stays
@@ -29,11 +29,8 @@ function dedupeSources(findings) {
   return lines;
 }
 
-/**
- * @param {string} query
- * @param {{report:string, findings:object[], analyzedUrls:object[], stats:{rounds:number,queries:number,urls:number,elapsedMs:number}}} out
- */
-function formatReport(query, out) {
+/** Stats, report body and Sources: the part worth keeping as a document. */
+function reportBody(out) {
   const { report, findings, stats } = out;
   const summaryLine = [
     `**Duration:** ${(stats.elapsedMs / 1000).toFixed(1)}s`,
@@ -44,11 +41,17 @@ function formatReport(query, out) {
 
   const sourceLines = dedupeSources(findings);
 
-  const sections = ['---', '', '## Research Summary', '', summaryLine, '', '---', '', report, ''];
+  const sections = ['## Research Summary', '', summaryLine, '', '---', '', report, ''];
   if (sourceLines.length) sections.push('### Sources', '', ...sourceLines, '');
-  sections.push('---', '', `**Research complete. Cite sources above when relevant to "${query}".**`);
-
-  return sections.join('\n');
+  return sections.join('\n').trim();
 }
 
-module.exports = { formatReport };
+/**
+ * @param {string} query
+ * @param {{report:string, findings:object[], analyzedUrls:object[], stats:{rounds:number,queries:number,urls:number,elapsedMs:number}}} out
+ */
+function formatReport(query, out) {
+  return ['---', '', reportBody(out), '', '---', '', `**Research complete. Cite sources above when relevant to "${query}".**`].join('\n');
+}
+
+module.exports = { formatReport, reportBody };

@@ -73,7 +73,6 @@ module.exports = {
   fsWriteRoots: (env.LESLIE_FS_WRITE_ROOTS
     ? env.LESLIE_FS_WRITE_ROOTS.split(',').map((s) => s.trim()).filter(Boolean)
     : [env.LESLIE_DOCS_DIR || require('node:path').join(require('node:os').homedir(), 'Documents')]),
-  fsWriteMaxBytes: Number(env.LESLIE_FS_WRITE_MAX_BYTES ?? 524288),
 
   planMode: env.LESLIE_PLAN_MODE === '1',
 
