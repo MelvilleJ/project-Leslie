@@ -22,8 +22,9 @@ const screenRecord = require('./screenRecord');
 const screenshot = require('./screenshot');
 const closeApp = require('./closeApp');
 const modelProfile = require('./modelProfile');
+const speech = require('./speech');
 
-const base = [webSearch, deepSearch, deepResearch, openUrl, openSearch, openApp, closeApp, createDocument, task, setMode, modelProfile, screenRecord, screenshot];
+const base = [webSearch, deepSearch, deepResearch, openUrl, openSearch, openApp, closeApp, createDocument, task, setMode, modelProfile, screenRecord, screenshot, speech];
 const agentTools = [runCommand, installSoftware];
 const fsTools = [listDirectory, readFile, readDocument];
 
@@ -61,4 +62,13 @@ async function run(name, args, ctx) {
   return tool.run(args || {}, ctx);
 }
 
-module.exports = { specs, list, run, names: () => active().map((t) => t.name) };
+/** Every tool regardless of mode, for configuring shortcuts. */
+function catalog() {
+  return [...base, ...agentTools, ...fsTools, writeFile, remember].map((t) => ({
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters || { type: 'object', properties: {} }
+  }));
+}
+
+module.exports = { specs, list, run, catalog, names: () => active().map((t) => t.name) };

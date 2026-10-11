@@ -21,7 +21,8 @@ const BRIDGED = {
   set_mode: require('../tools/setMode'),
   model_profile: require('../tools/modelProfile'),
   screen_record: require('../tools/screenRecord'),
-  screenshot: require('../tools/screenshot')
+  screenshot: require('../tools/screenshot'),
+  speech: require('../tools/speech')
 };
 
 const PI_READ_TOOLS = ['read', 'grep', 'find', 'ls'];
