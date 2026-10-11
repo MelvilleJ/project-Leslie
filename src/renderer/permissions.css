@@ -1,0 +1,114 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+#bar {
+  display: flex;
+  align-items: center;
+  padding: 0 150px 0 16px;
+  height: 44px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+  -webkit-app-region: drag;
+}
+
+#title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+#title::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+#prompts {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.prompt {
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 12px;
+}
+
+.prompt .source {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.prompt .title { font-weight: 600; font-size: 0.88rem; margin-bottom: 4px; }
+
+.prompt .message {
+  font: 0.82rem/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  margin-bottom: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.prompt .options { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+
+.prompt .actions { display: flex; gap: 8px; }
+
+.prompt button {
+  flex: 1 1 auto;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.prompt .yes { background: var(--accent); color: #fff; border-color: var(--accent); }
+.prompt .no { background: transparent; color: var(--text-dim); }
+.prompt .options button { text-align: left; background: transparent; color: var(--text); font-weight: 500; }
+.prompt .options button:hover { border-color: var(--accent); }
+
+.prompt .field {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: 0.8rem/1.35 ui-monospace, "SF Mono", Menlo, monospace;
+  resize: vertical;
+  user-select: text;
+}
+.prompt .field:focus { outline: none; border-color: var(--accent); }

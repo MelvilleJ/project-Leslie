@@ -2,6 +2,7 @@
 
 const { exec } = require('node:child_process');
 const config = require('../../config');
+const { isDestructive } = require('./destructive');
 
 const DENY_WINDOWS = [
   /\bformat\b/i,
@@ -79,13 +80,15 @@ function isAppControl(command) {
 
 /**
  * Decide whether `command` is cleared to run. Allowlisted commands pass
- * immediately, as do open/close-app commands in assistant mode; anything else
+ * immediately, as do open/close-app commands in assistant mode and
+ * non-destructive commands in auto mode; anything else
  * asks the user through ctx.confirm and resolves to their choice. Returns false
  * if there's no way to ask (no confirm channel).
  */
 async function gate(command, ctx, explanation) {
   if (isAllowed(command)) return true;
   if (config.taskMode && isAppControl(command)) return true;
+  if (config.autoApprove && !isDestructive(command, config.osTarget)) return true;
   if (!ctx || typeof ctx.confirm !== 'function') return false;
   const lines = ['LESLIE wants to run this command:', '', command];
   if (explanation) lines.push('', explanation);
