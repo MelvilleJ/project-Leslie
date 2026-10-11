@@ -26,4 +26,4 @@ function profileCommand(text) {
   return m[1] === 'power' ? 'power' : 'everyday';
 }
 
-module.exports = { profileCommand };
+module.exports = { profileCommand, normalize };
