@@ -18,6 +18,8 @@ let WAKE = 'hey leslie';
 let WAKE_TIMEOUT_MS = 8000;
 
 let active = true;
+// True while LESLIE's own speech is playing: drop mic input so she doesn't transcribe herself.
+let selfSpeaking = false;
 let awakeUntil = 0;
 let transcriber = null;
 let audioCtx = null;
@@ -142,15 +144,39 @@ async function transcribeServer(samples) {
   return (data && typeof data.text === 'string' ? data.text : '').trim();
 }
 
+const isAwake = () => Date.now() < awakeUntil;
+
+// Every sound above the VAD threshold is transcribed to scan for the wake word;
+// only report it once she has actually been woken, or the mascot "listens" to noise.
 async function transcribe(samples) {
-  status('transcribing');
+  const awake = isAwake();
+  if (awake) status('transcribing');
   try {
     return BACKEND === 'server'
       ? await transcribeServer(samples)
       : await transcribeLocal(samples);
   } finally {
-    status('idle');
+    if (awake) status('idle');
   }
+}
+
+let wakeTimer = null;
+
+function wakeUp(now) {
+  awakeUntil = now + WAKE_TIMEOUT_MS;
+  status('listening');
+  clearTimeout(wakeTimer);
+  wakeTimer = setTimeout(() => {
+    if (awakeUntil && !isAwake()) {
+      awakeUntil = 0;
+      status('idle');
+    }
+  }, WAKE_TIMEOUT_MS + 50);
+}
+
+function sleep() {
+  awakeUntil = 0;
+  clearTimeout(wakeTimer);
 }
 
 async function handleUtterance(samples) {
@@ -162,14 +188,14 @@ async function handleUtterance(samples) {
     status('error', String(err && err.message ? err.message : err));
     return;
   }
-  if (isJunk(text)) return;
-
   const now = Date.now();
   if (now < awakeUntil) {
-    awakeUntil = 0;
+    if (isJunk(text)) return;
+    sleep();
     bridge.final({ text });
     return;
   }
+  if (isJunk(text)) return;
 
   const { matched, command } = wake.detectWake(text, WAKE);
   if (!matched) return;
@@ -178,9 +204,8 @@ async function handleUtterance(samples) {
     bridge.wake({ command });
     bridge.final({ text: command });
   } else {
-    awakeUntil = now + WAKE_TIMEOUT_MS;
     bridge.wake({ command: '' });
-    status('listening');
+    wakeUp(now);
   }
 }
 
@@ -229,6 +254,12 @@ async function startMic() {
       if (speaking) flush();
       return;
     }
+    if (selfSpeaking) {
+      chunks = [];
+      speaking = false;
+      silenceMs = 0;
+      return;
+    }
     const input = e.inputBuffer.getChannelData(0);
     let sum = 0;
     for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
@@ -271,12 +302,14 @@ bridge.onControl((msg) => {
   if (!msg) return;
   if (msg.action === 'set-active') {
     active = !!msg.value;
+    if (!active) sleep();
     if (audioCtx) (active ? audioCtx.resume() : audioCtx.suspend());
     status(active ? 'idle' : 'off');
+  } else if (msg.action === 'speaking') {
+    selfSpeaking = !!msg.value;
   } else if (msg.action === 'listen-once') {
     active = true;
     if (audioCtx) audioCtx.resume();
-    awakeUntil = Date.now() + WAKE_TIMEOUT_MS;
-    status('listening');
+    wakeUp(Date.now());
   }
 });
