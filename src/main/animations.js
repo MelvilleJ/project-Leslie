@@ -5,8 +5,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { app } = require('electron');
+const aseprite = require('./aseprite');
+const wardrobe = require('./wardrobe');
 
 const STATES = ['toolCall', 'longThink', 'thinking', 'talking', 'listening', 'moving', 'idle'];
+
+const BUILTIN_DIR = path.join(__dirname, '..', '..', 'assets', 'animations');
 
 const BUILTINS = [
   { id: 'builtin:idle', name: 'Idle (built-in)', builtin: true, sheet: 'idle',
@@ -15,14 +19,21 @@ const BUILTINS = [
     frameW: 247, frameH: 537, cols: 4, frames: 12, frameMs: 140 },
   { id: 'builtin:talking', name: 'Talking (built-in)', builtin: true, sheet: 'talking',
     frameW: 211, frameH: 537, cols: 4, frames: 28, frameMs: 140 },
-  ...[['idle', 12], ['talking', 10], ['thinking', 8], ['tools', 8], ['listening', 8], ['moving', 10]]
-    .map(([name, frames]) => ({
-      id: `builtin:pixel-${name}`, name: `Pixel ${name} (built-in)`, builtin: true, pixelArt: true,
-      sheet: `pixel/${name}`, frameW: 288, frameH: 560, cols: 4, frames, frameMs: 140
-    }))
+  ...['idle', 'talking', 'thinking', 'tools', 'listening', 'moving'].map((name) => ({
+    id: `builtin:pixel-${name}`, name: `Pixel ${name} (built-in)`, builtin: true,
+    aseprite: pixelClipPath(name)
+  }))
 ];
 
+/** The layered wardrobe version of a pixel clip, falling back to the plain one if it hasn't been built. */
+function pixelClipPath(name) {
+  const layered = `pixel/wardrobe/leslie-${name}.aseprite`;
+  return fs.existsSync(path.join(BUILTIN_DIR, layered)) ? layered : `pixel/${name}/leslie-${name}.aseprite`;
+}
+
 const EDITABLE = ['name', 'frameW', 'frameH', 'cols', 'frames', 'frameMs'];
+// An .aseprite clip's grid comes from the file itself.
+const EDITABLE_ASEPRITE = ['name', 'frameMs'];
 
 let cache = null;
 let seq = 0;
@@ -33,6 +44,27 @@ function file() {
 
 function clipsDir() {
   return path.join(app.getPath('userData'), 'animations');
+}
+
+/** Resolve a built-in asset path, refusing anything outside assets/animations. */
+function builtinPath(rel) {
+  const full = path.resolve(BUILTIN_DIR, rel);
+  if (!full.startsWith(BUILTIN_DIR + path.sep)) throw new Error('Invalid built-in path');
+  return full;
+}
+
+/** Fill an .aseprite built-in's grid from the file; drop it if the file is missing or broken. */
+function withAsepriteGrid(clip) {
+  if (!clip.aseprite) return clip;
+  try {
+    return { ...aseprite.loadSheet(builtinPath(clip.aseprite), wardrobe.current()).grid, ...clip, pixelArt: true };
+  } catch {
+    return null;
+  }
+}
+
+function builtins() {
+  return BUILTINS.map(withAsepriteGrid).filter(Boolean);
 }
 
 function load() {
@@ -58,13 +90,15 @@ function persist() {
 }
 
 function defaultBindings() {
-  return { idle: ['builtin:idle'], thinking: ['builtin:thinking'], talking: ['builtin:talking'],
-    longThink: [], toolCall: [], listening: [], moving: [] };
+  return { idle: ['builtin:pixel-idle'], thinking: ['builtin:pixel-thinking'],
+    talking: ['builtin:pixel-talking'], longThink: ['builtin:pixel-thinking'],
+    toolCall: ['builtin:pixel-tools'], listening: ['builtin:pixel-listening'],
+    moving: ['builtin:pixel-moving'] };
 }
 
 function effectiveBindings() {
   const data = load();
-  const known = new Set([...BUILTINS.map((c) => c.id), ...data.clips.map((c) => c.id)]);
+  const known = new Set([...builtins().map((c) => c.id), ...data.clips.map((c) => c.id)]);
   const out = defaultBindings();
   if (data.bindings) {
     for (const s of STATES) {
@@ -74,11 +108,16 @@ function effectiveBindings() {
   return out;
 }
 
+/** .aseprite clips carry the current outfit as a URL query, so an outfit change reloads their sheets. */
+function dressed(clip) {
+  return clip.aseprite || aseprite.isAsepritePath(clip.file || '') ? { ...clip, outfit: wardrobe.query() } : clip;
+}
+
 /** Full config for a renderer: every clip (built-ins first) + resolved bindings. */
 function getConfig() {
   const data = load();
   return {
-    clips: [...BUILTINS, ...data.clips],
+    clips: [...builtins(), ...data.clips].map(dressed),
     bindings: effectiveBindings(),
     states: STATES
   };
@@ -100,25 +139,27 @@ function sanitizeGrid(grid = {}, frameMs) {
 }
 
 /**
- * Import an uploaded spritesheet: copy the PNG into userData and store its meta.
+ * Import an uploaded spritesheet PNG or .aseprite file into userData and store its meta.
+ * An .aseprite file supplies its own grid, so `grid` is ignored for it.
  * @param {{ name: string, pngPath: string, grid?: object, frameMs?: number }} opts
  * @returns {object} the stored clip
  */
 function importClip({ name, pngPath, grid, frameMs } = {}) {
-  if (!pngPath || !fs.existsSync(pngPath)) throw new Error('Spritesheet PNG not found');
+  if (!pngPath || !fs.existsSync(pngPath)) throw new Error('Spritesheet file not found');
+  const isAse = aseprite.isAsepritePath(pngPath);
+  const sheetGrid = isAse ? aseprite.loadSheet(pngPath).grid : null;
   const dir = clipsDir();
   fs.mkdirSync(dir, { recursive: true });
   const id = `clip${Date.now()}_${++seq}`;
-  const file_ = `${id}.png`;
+  const file_ = `${id}${isAse ? '.aseprite' : '.png'}`;
   fs.copyFileSync(pngPath, path.join(dir, file_));
 
-  const g = sanitizeGrid(grid, frameMs);
   const clip = {
     id,
     name: String(name || 'Animation').trim() || 'Animation',
     file: file_,
     builtin: false,
-    ...g
+    ...(isAse ? { ...sheetGrid, pixelArt: true } : sanitizeGrid(grid, frameMs))
   };
   const data = load();
   data.clips.push(clip);
@@ -131,7 +172,7 @@ function updateClip(id, patch = {}) {
   const data = load();
   const clip = data.clips.find((c) => c.id === id);
   if (!clip) return null;
-  for (const k of EDITABLE) {
+  for (const k of aseprite.isAsepritePath(clip.file) ? EDITABLE_ASEPRITE : EDITABLE) {
     if (patch[k] === undefined) continue;
     if (k === 'name') clip.name = String(patch.name).trim() || clip.name;
     else {
@@ -169,7 +210,7 @@ function removeClip(id) {
 function setBinding(state, ids) {
   if (!STATES.includes(state)) return effectiveBindings();
   const data = load();
-  const known = new Set([...BUILTINS.map((c) => c.id), ...data.clips.map((c) => c.id)]);
+  const known = new Set([...builtins().map((c) => c.id), ...data.clips.map((c) => c.id)]);
   const clean = (Array.isArray(ids) ? ids : [ids]).filter((id) => known.has(id));
   if (!data.bindings) data.bindings = defaultBindings();
   // idle keeps the whole list (rotation); other states use a single clip.
@@ -181,6 +222,7 @@ function setBinding(state, ids) {
 module.exports = {
   STATES,
   clipsDir,
+  builtinPath,
   getConfig,
   importClip,
   updateClip,

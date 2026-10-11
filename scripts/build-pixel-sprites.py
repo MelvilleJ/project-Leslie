@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Build pixel-art Leslie clips (.aseprite + spritesheet.png/.css) from the painted idle sheet.
+"""Generate the starter pixel-art Leslie clips as .aseprite files from the painted idle sheet.
 
-Usage: python3 scripts/build-pixel-sprites.py
-Output: assets/animations/pixel/<clip>/{spritesheet.png,spritesheet.css,leslie-<clip>.aseprite}
+Usage: python3 scripts/build-pixel-sprites.py [--force]
+Output: assets/animations/pixel/<clip>/leslie-<clip>.aseprite (the app renders these directly)
+
+Existing files are hand-edited in Aseprite, so they are skipped unless --force is given.
 """
 import struct
+import sys
 import zlib
 from pathlib import Path
 
@@ -17,8 +20,6 @@ OUT_DIR = ROOT / 'assets/animations/pixel'
 SPRITE_H = 128
 CANVAS_W, CANVAS_H = 72, 140
 ORIGIN = (4, 8)
-SHEET_SCALE = 4
-COLS = 4
 FRAME_MS = 140
 
 OUTLINE = (14, 10, 16, 255)
@@ -243,20 +244,6 @@ def build_clips(base):
     return clips
 
 
-def write_sheet(frames, folder):
-    rows = (len(frames) + COLS - 1) // COLS
-    fw, fh = CANVAS_W * SHEET_SCALE, CANVAS_H * SHEET_SCALE
-    sheet = Image.new('RGBA', (fw * COLS, fh * rows))
-    for i, f in enumerate(frames):
-        sheet.alpha_composite(f.resize((fw, fh), Image.NEAREST), ((i % COLS) * fw, (i // COLS) * fh))
-    sheet.save(folder / 'spritesheet.png', optimize=True)
-    css = ['.sprite {', '  display: inline-block;', "  background: url('spritesheet.png') no-repeat;",
-           f'  width: {fw}px;', f'  height: {fh}px;', '}']
-    css += [f'.sprite-{i} {{ background-position: -{(i % COLS) * fw}px -{(i // COLS) * fh}px; }}'
-            for i in range(len(frames))]
-    (folder / 'spritesheet.css').write_text('\n'.join(css) + '\n')
-
-
 def _chunk(kind, data):
     return struct.pack('<IH', len(data) + 6, kind) + data
 
@@ -294,12 +281,15 @@ def write_aseprite(frames, path, tag):
 
 
 def main():
+    force = '--force' in sys.argv
     clips = build_clips(pixelate())
     for name, frames in clips.items():
-        folder = OUT_DIR / name
-        folder.mkdir(parents=True, exist_ok=True)
-        write_sheet(frames, folder)
-        write_aseprite(frames, folder / f'leslie-{name}.aseprite', name)
+        target = OUT_DIR / name / f'leslie-{name}.aseprite'
+        if target.exists() and not force:
+            print(f'{name}: exists, skipped (use --force to regenerate)')
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_aseprite(frames, target, name)
         print(f'{name}: {len(frames)} frames')
 
 
