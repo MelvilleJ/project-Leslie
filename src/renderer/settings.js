@@ -39,8 +39,9 @@ function showPanel(name) {
   else stopServerPanel();
   if (name === 'conversations') loadConversations();
   if (name === 'memory') loadMemories();
+  clearPreviewTimers(); // stop sprite preview loops from the panel being left
   if (name === 'animations') loadAnimations();
-  else clearPreviewTimers(); // stop sprite preview loops when leaving the panel
+  if (name === 'wardrobe') loadWardrobe();
 }
 navButtons.forEach((b) => b.addEventListener('click', () => showPanel(b.dataset.panel)));
 
@@ -61,7 +62,8 @@ const GROUP_TO_CONTAINER = {
   Connection: 'form-connection',
   Generation: 'form-generation',
   Behaviour: 'form-behaviour',
-  Voice: 'form-voice'
+  Voice: 'form-voice',
+  Speech: 'form-speech'
 };
 
 async function buildForms() {
@@ -172,8 +174,187 @@ function renderField(field, value) {
   return el('div', { class: 'field', 'data-field-key': field.key }, label, control);
 }
 
-api.onConfigChanged?.(({ key }) => {
+api.onConfigChanged?.(({ key, value }) => {
   if (key === 'learningMode') buildAbout();
+  if (key === 'ttsEnabled' || key === 'autoApprove') {
+    const box = document.querySelector(`[data-field-key="${key}"] input[type="checkbox"]`);
+    if (box) box.checked = Boolean(value);
+  }
+});
+
+// --- Speech preview -----------------------------------------------------------
+let previewCtx = null;
+
+async function playSamples({ samples, sampleRate }) {
+  if (!previewCtx || previewCtx.sampleRate !== sampleRate) previewCtx = new AudioContext({ sampleRate });
+  const buf = previewCtx.createBuffer(1, samples.length, sampleRate);
+  buf.copyToChannel(samples, 0);
+  const src = previewCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(previewCtx.destination);
+  src.start();
+}
+
+function addVoicePreview() {
+  const control = document.querySelector('[data-field-key="ttsVoice"] .field-control');
+  if (!control) return;
+  const select = control.querySelector('select');
+  const btn = el('button', { class: 'btn small', type: 'button', text: '▶ Preview' });
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    try {
+      const audio = await api.ttsPreview(select.value);
+      if (audio) await playSamples(audio);
+      else toast('Preview failed — is the speech model downloaded?', true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '▶ Preview';
+    }
+  });
+  control.append(btn);
+}
+
+// --- Voice shortcuts ----------------------------------------------------------
+// Phrase → tool call, run without the model. Argument inputs are generated from
+// each tool's JSON-schema parameters.
+let shortcuts = [];
+let shortcutTools = [];
+const shortcutList = document.getElementById('shortcut-list');
+
+async function loadShortcuts() {
+  const res = await api.getShortcuts();
+  shortcuts = res.shortcuts || [];
+  shortcutTools = res.tools || [];
+  renderShortcuts();
+}
+
+// The main process drops incomplete shortcuts (no phrase yet) when persisting;
+// the local list keeps them so a half-filled card stays on screen.
+async function saveShortcuts(message) {
+  const res = await api.saveShortcuts(shortcuts);
+  if (res && res.ok) {
+    if (message) toast(message);
+  } else {
+    toast((res && res.error) || 'Save failed', true);
+  }
+}
+
+function shortcutField(label, control) {
+  return el('div', { class: 'field' },
+    el('div', { class: 'field-label' }, el('span', { class: 'name', text: label })),
+    el('div', { class: 'field-control' }, control));
+}
+
+function argControl(sc, name, schema, required) {
+  const current = sc.args[name];
+  const commit = (value) => {
+    if (value === '' || value === undefined) delete sc.args[name];
+    else sc.args[name] = value;
+    saveShortcuts('Shortcut saved');
+  };
+  if (Array.isArray(schema.enum)) {
+    const sel = el('select');
+    if (!required) sel.append(el('option', { value: '', text: '(default)' }));
+    for (const v of schema.enum) {
+      const o = el('option', { value: v, text: v });
+      if (v === current) o.selected = true;
+      sel.append(o);
+    }
+    if (required && current === undefined) sc.args[name] = sel.value;
+    sel.addEventListener('change', () => commit(sel.value));
+    return sel;
+  }
+  if (schema.type === 'boolean') {
+    const box = el('input', { type: 'checkbox' });
+    box.checked = Boolean(current);
+    box.addEventListener('change', () => commit(box.checked));
+    return el('label', { class: 'switch' }, box, el('span', { class: 'slider' }));
+  }
+  const input = el('input', {
+    type: schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text',
+    placeholder: (schema.description || '').slice(0, 90)
+  });
+  input.value = current ?? '';
+  input.title = schema.description || '';
+  input.addEventListener('change', () => {
+    const v = input.value.trim();
+    commit(v === '' ? '' : input.type === 'number' ? Number(v) : v);
+  });
+  return input;
+}
+
+function renderShortcut(sc, index) {
+  const tool = shortcutTools.find((t) => t.name === sc.tool);
+  const card = el('div', { class: `form${sc.enabled ? '' : ' disabled'}` });
+
+  const enabled = el('input', { type: 'checkbox' });
+  enabled.checked = sc.enabled;
+  enabled.addEventListener('change', () => {
+    sc.enabled = enabled.checked;
+    card.classList.toggle('disabled', !sc.enabled);
+    saveShortcuts(sc.enabled ? 'Shortcut on' : 'Shortcut off');
+  });
+  const del = el('button', { class: 'btn small danger', type: 'button', text: 'Delete' });
+  del.addEventListener('click', () => {
+    shortcuts.splice(index, 1);
+    saveShortcuts('Shortcut deleted').then(renderShortcuts);
+  });
+  card.append(el('div', { class: 'shortcut-head' },
+    el('span', { class: 'muted small', text: `“${sc.phrases[0] || 'new shortcut'}”` }),
+    el('div', { class: 'actions' }, el('label', { class: 'switch', title: 'On / off' }, enabled, el('span', { class: 'slider' })), del)));
+
+  const phrases = el('input', { type: 'text', placeholder: 'clip this, clip that' });
+  phrases.value = sc.phrases.join(', ');
+  phrases.addEventListener('change', () => {
+    const list = phrases.value.split(',').map((p) => p.trim()).filter(Boolean);
+    if (!list.length) return toast('A shortcut needs at least one phrase', true);
+    sc.phrases = list;
+    saveShortcuts('Shortcut saved').then(renderShortcuts);
+  });
+  card.append(shortcutField('When I say', phrases));
+
+  const toolSel = el('select');
+  for (const t of shortcutTools) {
+    const o = el('option', { value: t.name, text: t.name });
+    if (t.name === sc.tool) o.selected = true;
+    toolSel.append(o);
+  }
+  toolSel.addEventListener('change', () => {
+    sc.tool = toolSel.value;
+    sc.args = {};
+    saveShortcuts('Shortcut saved').then(renderShortcuts);
+  });
+  card.append(shortcutField('Run tool', toolSel));
+  if (tool) card.append(el('div', { class: 'shortcut-tool-help', text: tool.description }));
+
+  const props = (tool && tool.parameters && tool.parameters.properties) || {};
+  const required = new Set((tool && tool.parameters && tool.parameters.required) || []);
+  for (const [name, schema] of Object.entries(props)) {
+    card.append(shortcutField(`${name}${required.has(name) ? ' *' : ''}`, argControl(sc, name, schema, required.has(name))));
+  }
+
+  const reply = el('input', { type: 'text', placeholder: "Blank = say the tool's result" });
+  reply.value = sc.reply || '';
+  reply.addEventListener('change', () => {
+    sc.reply = reply.value;
+    saveShortcuts('Shortcut saved');
+  });
+  card.append(shortcutField('Reply', reply));
+  return card;
+}
+
+function renderShortcuts() {
+  shortcutList.replaceChildren(...shortcuts.map(renderShortcut));
+  if (!shortcuts.length) shortcutList.append(el('p', { class: 'muted small', text: 'No shortcuts yet.' }));
+}
+
+document.getElementById('shortcut-add').addEventListener('click', () => {
+  const tool = shortcutTools[0];
+  shortcuts.push({ id: `shortcut-${Date.now()}`, phrases: [], tool: tool ? tool.name : '', args: {}, reply: '', enabled: true });
+  renderShortcuts();
+  const inputs = shortcutList.querySelectorAll('.form:last-child input[type="text"]');
+  if (inputs[0]) inputs[0].focus();
 });
 
 // --- Theme accent ----------------------------------------------------------
@@ -509,9 +690,11 @@ const STATE_ORDER = ['idle', 'thinking', 'longThink', 'toolCall', 'talking', 'li
 
 function clipSheetUrl(clip) {
   if (!clip) return '';
+  const outfit = clip.outfit ? `?${clip.outfit}` : '';
+  if (clip.aseprite) return `leslie-sprite://builtin/${clip.aseprite}${outfit}`;
   return clip.builtin
     ? `../../assets/animations/${clip.sheet}/spritesheet.png`
-    : `leslie-sprite://clips/${clip.file}`;
+    : `leslie-sprite://clips/${clip.file}${outfit}`;
 }
 
 // Each preview runs its own frame loop; track timers so we can stop them on
@@ -529,6 +712,7 @@ function makePreview(clip, boxH = 92) {
   inner.style.height = `${clip.frameH}px`;
   inner.style.backgroundImage = `url('${clipSheetUrl(clip)}')`;
   inner.style.transform = `scale(${scale})`;
+  if (clip.pixelArt) inner.style.imageRendering = 'pixelated';
   let f = 0;
   const draw = () => {
     const col = f % clip.cols;
@@ -667,7 +851,8 @@ api.onAnimationsChanged((cfg) => {
   if (activePanel === 'animations') renderAnimations(cfg);
 });
 
-buildForms();
+buildForms().then(addVoicePreview);
+loadShortcuts();
 buildAbout();
 loadConversations();
 
@@ -677,6 +862,8 @@ const srvStatusEl = document.getElementById('srv-status');
 const srvProgressEl = document.getElementById('srv-progress');
 const srvGpusEl = document.getElementById('srv-gpus');
 const srvProfilesEl = document.getElementById('srv-profiles');
+const srvPresetsEl = document.getElementById('srv-presets');
+const srvPresetModel = document.getElementById('srv-preset-model');
 const srvLogEl = document.getElementById('srv-log');
 const srvEnabled = document.getElementById('srv-enabled');
 
@@ -685,7 +872,12 @@ const DEVICE_OPTIONS = [
   { value: 'CUDA0,Vulkan0', label: 'Both GPUs' },
   { value: 'Vulkan0', label: 'Radeon only' }
 ];
-const CTX_OPTIONS = [8192, 16384, 32768, 65536, 131072];
+const CTX_OPTIONS = [8192, 16384, 32768, 65536, 131072, 262144];
+const CACHE_OPTIONS = [
+  { value: '', label: 'f16 (default)' },
+  { value: 'q8_0', label: 'q8_0 (half the VRAM)' },
+  { value: 'q4_0', label: 'q4_0 (quarter, lossier)' }
+];
 
 let srvModels = [];
 let srvTimer = null;
@@ -754,12 +946,69 @@ function renderProfile(p, st) {
   );
 }
 
+function renderPreset(id, preset, st) {
+  const devices = select(DEVICE_OPTIONS, preset.devices);
+  const split = el('input', { type: 'text', value: preset.tensorSplit || '', placeholder: 'e.g. 11,17' });
+  const ctx = select(CTX_OPTIONS.map((n) => ({ value: n, label: `${n / 1024}k tokens` })), preset.ctx);
+  const cache = select(CACHE_OPTIONS, preset.cacheType);
+  const moe = el('input', { type: 'number', min: 0, max: 64, placeholder: 'auto', value: preset.cpuMoeLayers ?? '' });
+  const splitRow = [el('span', { text: 'GPU split' }), split];
+  const syncSplit = () => splitRow.forEach((n) => n.classList.toggle('hidden', !devices.value.includes(',')));
+  devices.addEventListener('change', syncSplit);
+  syncSplit();
+  for (const c of [devices, split, ctx, cache, moe]) c.addEventListener('focus', () => { srvEditing = true; });
+
+  const state = st.loaded.includes(id) ? 'loaded' : 'unloaded';
+  const save = el('button', { class: 'btn', text: 'Save' });
+  save.addEventListener('click', async () => {
+    const patch = { modelPresets: { [id]: {
+      devices: devices.value, tensorSplit: devices.value.includes(',') ? split.value.trim() : '',
+      ctx: Number(ctx.value), cacheType: cache.value, cpuMoeLayers: moe.value === '' ? null : Number(moe.value)
+    } } };
+    srvEditing = false;
+    if (!srvToast(await srv.save(patch))) return;
+    toast(`${id} saved, restart the server to apply`);
+    refreshServer();
+  });
+  const remove = el('button', { class: 'btn danger', text: 'Remove' });
+  remove.addEventListener('click', async () => {
+    srvEditing = false;
+    if (srvToast(await srv.save({ modelPresets: { [id]: null } }), `${id} preset removed`)) refreshServer();
+  });
+
+  return el('div', { class: 'scard srv-profile' },
+    el('div', { class: 'srv-head' }, el('h3', { text: id }), el('span', { class: `srv-state ${state}`, text: state === 'loaded' ? 'loaded' : 'not loaded' })),
+    el('div', { class: 'srv-form' },
+      el('span', { text: 'GPUs' }), devices,
+      ...splitRow,
+      el('span', { text: 'Context' }), ctx,
+      el('span', { text: 'KV cache', title: 'Quantizing the KV cache lets a longer context fit in the same VRAM.' }), cache,
+      el('span', { text: 'Experts in RAM', title: 'MoE layers whose experts stay in system RAM. Blank = auto-fit to the GPUs.' }), moe
+    ),
+    el('div', { class: 'srv-actions' }, save, remove)
+  );
+}
+
+function renderPresets(st) {
+  const profileModels = new Set(st.profiles.map((p) => p.model));
+  const presets = Object.entries(st.modelPresets || {}).filter(([id]) => !profileModels.has(id));
+  srvPresetsEl.innerHTML = '';
+  for (const [id, preset] of presets) srvPresetsEl.append(renderPreset(id, preset, st));
+
+  const free = srvModels.filter((m) => !profileModels.has(m.id) && !(st.modelPresets || {})[m.id]);
+  const keep = srvPresetModel.value;
+  srvPresetModel.innerHTML = '';
+  for (const m of free) srvPresetModel.append(el('option', { value: m.id, text: m.id }));
+  if (free.some((m) => m.id === keep)) srvPresetModel.value = keep;
+  document.getElementById('srv-preset-add').disabled = !free.length;
+}
+
 function renderServer(st) {
   const svc = st.service;
   const running = st.reachable;
   srvStatusEl.textContent = running
-    ? `● Running at ${st.url}${svc.active === 'active' ? ' (leslie-llama service)' : ' (started outside LESLIE)'} · ${st.loaded.length ? `loaded: ${st.loaded.join(', ')}` : 'no model loaded'}`
-    : `○ Stopped${svc.installed ? '' : ' — Start creates the leslie-llama service'}`;
+    ? `● Running at ${st.url}${svc.active === 'active' ? ` (${svc.unit})` : ' (started outside the service)'} · ${st.loaded.length ? `loaded: ${st.loaded.join(', ')}` : 'no model loaded'}`
+    : `○ Stopped${svc.installed ? '' : ` — ${svc.unit} is not installed (run scripts/setup-llama-router.sh)`}`;
   srvStatusEl.className = `status-line small ${running ? 'ok' : 'muted'}`;
   srvEnabled.checked = svc.enabled;
   document.getElementById('srv-start').disabled = running;
@@ -773,6 +1022,7 @@ function renderServer(st) {
   if (srvEditing) return;
   srvProfilesEl.innerHTML = '';
   for (const p of st.profiles) srvProfilesEl.append(renderProfile(p, st));
+  renderPresets(st);
 }
 
 async function refreshServer() {
@@ -801,6 +1051,12 @@ for (const [id, action, done] of [['srv-start', 'start', 'Server started'], ['sr
     refreshServer();
   });
 }
+document.getElementById('srv-preset-add').addEventListener('click', async () => {
+  const id = srvPresetModel.value;
+  if (!id) return;
+  srvEditing = false;
+  if (srvToast(await srv.save({ modelPresets: { [id]: {} } }), `Preset added for ${id}`)) refreshServer();
+});
 srvEnabled.addEventListener('change', async () => {
   srvToast(await srv.service(srvEnabled.checked ? 'enable' : 'disable'), srvEnabled.checked ? 'Starts at login' : 'Won’t start at login');
   refreshServer();
@@ -822,3 +1078,77 @@ srv.onEvent((ev) => {
   }
 });
 api.onShowPanel((panel) => showPanel(panel));
+
+// --- Wardrobe ---------------------------------------------------------------
+const wardrobePreviewEl = document.getElementById('wardrobe-preview');
+const wardrobeFormEl = document.getElementById('wardrobe-form');
+const SLOT_LABEL = { top: 'Top', bottom: 'Bottom', shoes: 'Shoes' };
+
+const itemLabel = (item) => item.charAt(0).toUpperCase() + item.slice(1).replace(/-/g, ' ');
+const hourLabel = (h) => `${String(h).padStart(2, '0')}:00`;
+
+function outfitQuery(outfit) {
+  return new URLSearchParams(outfit).toString();
+}
+
+function outfitPicker(state, outfit, onPick) {
+  const row = el('div', { class: 'field-control wardrobe-picker' });
+  for (const slot of state.slots) {
+    const sel = el('select', { 'aria-label': SLOT_LABEL[slot] });
+    for (const item of state.catalog[slot]) sel.append(el('option', { value: item, text: itemLabel(item) }));
+    sel.value = outfit[slot];
+    sel.addEventListener('change', () => onPick({ [slot]: sel.value }));
+    row.append(el('label', { class: 'grid-cell' }, el('span', { text: SLOT_LABEL[slot] }), sel));
+  }
+  return row;
+}
+
+function renderWardrobe(state, idleClip) {
+  clearPreviewTimers();
+  wardrobePreviewEl.innerHTML = '';
+  wardrobeFormEl.innerHTML = '';
+  const preview = (outfit, boxH) => (idleClip ? makePreview({ ...idleClip, outfit: outfitQuery(outfit) }, boxH) : null);
+  const save = async (patch) => renderWardrobe(await api.setWardrobe(patch), idleClip);
+
+  wardrobePreviewEl.append(preview(state.current, 260) || el('div', { class: 'muted small', text: 'No pixel avatar found' }));
+
+  const mode = el('select', { 'aria-label': 'Wardrobe mode' },
+    el('option', { value: 'manual', text: 'Manual — wear the outfit below' }),
+    el('option', { value: 'auto', text: 'Automatic — change with the time of day' }));
+  mode.value = state.mode;
+  mode.addEventListener('change', () => save({ mode: mode.value }));
+  wardrobeFormEl.append(el('div', { class: 'field' },
+    el('div', { class: 'field-label' }, el('span', { class: 'name', text: 'Mode' })),
+    el('div', { class: 'field-control' }, mode)));
+
+  if (state.mode === 'manual') {
+    wardrobeFormEl.append(el('div', { class: 'field' },
+      el('div', { class: 'field-label' }, el('span', { class: 'name', text: 'Outfit' })),
+      outfitPicker(state, state.outfit, (pick) => save({ outfit: pick }))));
+    return;
+  }
+
+  state.periods.forEach((period, i) => {
+    const end = state.periods[(i + 1) % state.periods.length].start;
+    const isNow = period.id === state.period;
+    wardrobeFormEl.append(el('div', { class: `field${isNow ? ' wardrobe-now' : ''}` },
+      el('div', { class: 'field-label' },
+        el('span', { class: 'name', text: `${period.label}${isNow ? ' · now' : ''}` }),
+        el('span', { class: 'help', text: `${hourLabel(period.start)}–${hourLabel(end)}` }),
+        preview(state.schedule[period.id], 96)),
+      outfitPicker(state, state.schedule[period.id], (pick) => save({ schedule: { [period.id]: pick } }))));
+  });
+}
+
+async function loadWardrobe() {
+  try {
+    const [state, anim] = await Promise.all([api.getWardrobe(), api.getAnimations()]);
+    renderWardrobe(state, (anim.clips || []).find((c) => c.id === 'builtin:pixel-idle'));
+  } catch {
+    toast('Could not load wardrobe', true);
+  }
+}
+
+api.onAnimationsChanged(() => {
+  if (activePanel === 'wardrobe') loadWardrobe();
+});

@@ -521,7 +521,7 @@ function reset() {
   if (config.learningMode && config.learnEvery > 0 && history.length) {
     extractMemories(history.slice()).catch(() => {});
   }
-  rpc('new_session').then(sessionChanged).catch(() => {});
+  return rpc('new_session').then(sessionChanged).catch(() => {});
 }
 
 function resume(sessionFile) {

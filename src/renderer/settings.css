@@ -244,6 +244,8 @@ input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); }
 .srv-profile .srv-form input,
 .srv-profile .srv-form select { width: 100%; min-width: 0; }
 .srv-profile .srv-actions { display: flex; gap: 8px; }
+#srv-presets .scard h3 { text-transform: none; letter-spacing: 0; word-break: break-all; }
+.srv-presets-head { margin-top: 22px; }
 .srv-state { font-size: 0.68rem; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: #c8c8d8; }
 .srv-state.loaded { background: rgba(88, 194, 106, 0.2); color: #8fe0a8; }
 .srv-state.loading { background: rgba(196, 160, 75, 0.2); color: #ffd479; }
@@ -306,3 +308,22 @@ input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--accent) 32%, transparent); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--accent) 55%, transparent); background-clip: padding-box; }
+
+.subhead-row { margin: 18px 0 6px; }
+.subhead-row .subhead { margin: 0; }
+.shortcut-list { display: flex; flex-direction: column; gap: 10px; }
+.shortcut-list .form.disabled { opacity: 0.55; }
+.shortcut-list .field { grid-template-columns: 140px 1fr; padding: 10px 18px; }
+.shortcut-list .field-control input[type="text"], .shortcut-list .field-control select { flex: 1; min-width: 0; }
+.shortcut-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 18px 4px; }
+.shortcut-head .actions { display: flex; align-items: center; gap: 10px; }
+.shortcut-tool-help { font-size: 0.72rem; color: #9a9ab0; line-height: 1.4; padding: 0 18px 8px 176px; }
+
+.wardrobe-layout { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: start; }
+.wardrobe-preview {
+  display: flex; justify-content: center; padding: 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+}
+.wardrobe-picker { flex-wrap: wrap; }
+.wardrobe-picker .grid-cell { flex: 1 1 130px; }
+.wardrobe-now { background: color-mix(in srgb, var(--accent) 10%, transparent); }

@@ -8,6 +8,7 @@ const input = document.getElementById('input');
 const mic = document.getElementById('mic');
 const sendBtn = document.getElementById('send-btn');
 const agentToggle = document.getElementById('agent-toggle');
+const autoToggle = document.getElementById('auto-toggle');
 const settingsBtn = document.getElementById('settings-btn');
 const mentionMenu = document.getElementById('mention-menu');
 const commandMenu = document.getElementById('command-menu');
@@ -17,7 +18,6 @@ const attachmentsEl = document.getElementById('attachments');
 let engine = 'native';
 
 let expanded = false;
-let pendingConfirms = 0;
 
 function setExpanded(on) {
   on = !!on;
@@ -28,13 +28,13 @@ function setExpanded(on) {
   if (on) setTimeout(() => input.focus(), 0);
 }
 
-// Guard against collapse while confirming or pointer over panel (focus-follows-mouse).
+// Guard against collapse while the pointer is over the panel (focus-follows-mouse).
 let pointerInside = false;
 document.documentElement.addEventListener('mouseenter', () => { pointerInside = true; });
 document.documentElement.addEventListener('mouseleave', () => { pointerInside = false; });
 
 window.leslie.onWindowBlur(() => {
-  if (!pendingConfirms && !pointerInside) setExpanded(false);
+  if (!pointerInside) setExpanded(false);
 });
 
 // Measure pointerdown/up distance to avoid Wayland compositor's move-detection.
@@ -93,8 +93,10 @@ let moveTimer = null;
 
 function clipSheetUrl(clip) {
   if (!clip) return '';
+  const outfit = clip.outfit ? `?${clip.outfit}` : '';
+  if (clip.aseprite) return `leslie-sprite://builtin/${clip.aseprite}${outfit}`;
   if (clip.builtin) return `../../assets/animations/${clip.sheet}/spritesheet.png`;
-  return `leslie-sprite://clips/${clip.file}`;
+  return `leslie-sprite://clips/${clip.file}${outfit}`;
 }
 
 const STATE_PRIORITY = ['toolCall', 'longThink', 'talking', 'thinking', 'listening', 'moving', 'idle'];
@@ -194,14 +196,14 @@ function applyAnimConfig(cfg) {
   resolveAnimation();
 }
 
-applyAnimConfig({
+const FALLBACK_ANIM_CONFIG = {
   clips: [
     { id: 'builtin:idle', builtin: true, sheet: 'idle', frameW: 228, frameH: 537, cols: 4, frames: 25, frameMs: 140 },
     { id: 'builtin:thinking', builtin: true, sheet: 'thinking', frameW: 247, frameH: 537, cols: 4, frames: 12, frameMs: 140 }
   ],
   bindings: { idle: ['builtin:idle'], thinking: ['builtin:thinking'] }
-});
-window.leslie.getAnimations().then(applyAnimConfig).catch(() => {});
+};
+window.leslie.getAnimations().then(applyAnimConfig).catch(() => applyAnimConfig(FALLBACK_ANIM_CONFIG));
 window.leslie.onAnimations(applyAnimConfig);
 
 let longThinkTimer = null;
@@ -217,9 +219,135 @@ function endTurn() {
   longThinkTimer = null;
   setFlag('thinking', false);
   setFlag('longThink', false);
-  setFlag('talking', false);
+  setFlag('talking', speech.busy());
   setFlag('toolCall', false);
 }
+
+// --- Spoken replies ---------------------------------------------------------
+// Reply text is cut into sentences as it streams; each is synthesized in the main
+// process (Kokoro) and played in order, so she starts talking before the reply ends.
+const speech = (() => {
+  const SENTENCE_END = /(?<!\b(?:e\.g|i\.e|etc|vs|Mr|Mrs|Ms|Dr|St))[.!?…:;](?=["')\]]*\s)|\n+/g;
+  const LIST_MARKER = /(^|\n)[ \t]{0,3}(?:[-*+]|\d+[.)])[ \t]+/g;
+  const MAX_CHUNK = 220;
+
+  let enabled = false;
+  let generation = 0;
+  let buffer = '';
+  let spokeThisTurn = false;
+  let chain = Promise.resolve();
+  let queued = 0;
+  let audioCtx = null;
+  let source = null;
+
+  window.leslie.getTtsEnabled().then((on) => (enabled = on)).catch(() => {});
+  window.leslie.onTtsEnabled((on) => {
+    enabled = on;
+    if (!on) stop();
+  });
+
+  /** Markdown → something worth saying: no code, tables, URLs or markup. */
+  function clean(text) {
+    return text
+      .replace(/^\s*\|.*$/gm, ' ')
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/https?:\/\/\S+/g, 'a link')
+      .replace(/`([^`]*)`/g, '$1')
+      .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '')
+      .replace(/[*_~#>|]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function setPlaying(on) {
+    window.leslie.ttsPlaying(on);
+    if (!streaming) setFlag('talking', on);
+  }
+
+  async function play({ samples, sampleRate }) {
+    if (!audioCtx || audioCtx.sampleRate !== sampleRate) audioCtx = new AudioContext({ sampleRate });
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    const buf = audioCtx.createBuffer(1, samples.length, sampleRate);
+    buf.copyToChannel(samples, 0);
+    source = audioCtx.createBufferSource();
+    source.buffer = buf;
+    source.connect(audioCtx.destination);
+    await new Promise((resolve) => {
+      source.onended = resolve;
+      source.start();
+    });
+    source = null;
+  }
+
+  function say(text) {
+    const line = clean(text);
+    if (!enabled || !/[a-z0-9]/i.test(line)) return;
+    spokeThisTurn = true;
+    const gen = generation;
+    const audio = window.leslie.ttsSpeak(line).catch(() => null);
+    if (queued++ === 0) setPlaying(true);
+    chain = chain.then(async () => {
+      try {
+        const clip = await audio;
+        if (clip && gen === generation) await play(clip);
+      } finally {
+        if (gen === generation && --queued === 0) setPlaying(false);
+      }
+    });
+  }
+
+  /** Speak every complete sentence in the buffer (all of it when `final`), skipping code blocks. */
+  function drain(final) {
+    buffer = buffer.replace(/```[\s\S]*?```/g, '\n').replace(LIST_MARKER, '$1');
+    const fence = buffer.indexOf('```');
+    let text = fence === -1 ? buffer : buffer.slice(0, fence);
+    const held = fence === -1 ? '' : buffer.slice(fence);
+
+    let cut = final ? text.length : 0;
+    if (!final) {
+      for (const m of text.matchAll(SENTENCE_END)) cut = m.index + m[0].length;
+      if (!cut && text.length > MAX_CHUNK) cut = text.lastIndexOf(' ', MAX_CHUNK) + 1 || MAX_CHUNK;
+    }
+    if (cut) say(text.slice(0, cut));
+    buffer = text.slice(cut) + (final ? '' : held);
+  }
+
+  return {
+    busy: () => queued > 0,
+    /** Streaming answer text. */
+    feed(delta) {
+      if (!enabled) return;
+      buffer += delta;
+      drain(false);
+    },
+    /** End of turn: speak the remainder, or the whole reply if nothing streamed (shortcuts, commands). */
+    finish(reply) {
+      if (!spokeThisTurn && !buffer && reply) buffer = reply;
+      if (enabled) drain(true);
+      buffer = '';
+      spokeThisTurn = false;
+    },
+    stop
+  };
+
+  function stop() {
+    generation++;
+    buffer = '';
+    spokeThisTurn = false;
+    chain = Promise.resolve();
+    window.leslie.ttsCancel();
+    if (source) {
+      try {
+        source.stop();
+      } catch {
+      }
+    }
+    if (queued) {
+      queued = 0;
+      setPlaying(false);
+    }
+  }
+})();
 
 function nearBottom() {
   return transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 80;
@@ -362,7 +490,7 @@ const TOOL_ICON = {
   grep: 'fa-magnifying-glass', find: 'fa-magnifying-glass', ls: 'fa-folder',
   $: 'fa-terminal', '$ (private)': 'fa-terminal',
   screen_record: 'fa-video', screenshot: 'fa-camera', close_app: 'fa-xmark',
-  model_profile: 'fa-microchip'
+  model_profile: 'fa-microchip', speech: 'fa-volume-high'
 };
 
 /** A tool row plus a collapsible output pane underneath (filled as output arrives). */
@@ -476,6 +604,7 @@ window.leslie.onAgentChunk((delta) => {
   setFlag('talking', true);
   setStatus('Answering…');
   appendBody(delta);
+  speech.feed(delta);
 });
 
 window.leslie.onToolCall((ev) => {
@@ -533,6 +662,7 @@ async function send(text, { followUp = false } = {}) {
   // Only keep "@" mentions whose path still appears in the message.
   const mentions = pendingMentions.filter((m) => text.includes(m.path));
   pendingMentions = [];
+  speech.stop();
 
   setExpanded(true);
   appendUser(text, { images: images.length });
@@ -557,9 +687,12 @@ async function send(text, { followUp = false } = {}) {
   if (res && res.error) {
     finishAssistant('');
     systemLine(`⚠ ${res.error}`, 'error');
+    speech.finish('');
   } else {
     finishAssistant(res && res.reply);
     if (res && res.aborted) systemLine('⏹ Interrupted.');
+    if (res && res.aborted) speech.stop();
+    else speech.finish(res && res.reply);
   }
 }
 
@@ -617,36 +750,6 @@ async function runResearchFlow(query) {
   activeResearchSynapse = null;
 }
 
-window.leslie.onConfirm(({ id, message }) => {
-  setExpanded(true);
-  pendingConfirms++;
-  const card = document.createElement('div');
-  card.className = 'confirm-card';
-  const text = document.createElement('div');
-  text.className = 'cc-text';
-  text.textContent = message || 'Run this command?';
-  const actions = document.createElement('div');
-  actions.className = 'cc-actions';
-  const yes = document.createElement('button');
-  yes.className = 'cc-yes';
-  yes.textContent = 'Approve';
-  const no = document.createElement('button');
-  no.className = 'cc-no';
-  no.textContent = 'Deny';
-  actions.append(yes, no);
-  card.append(text, actions);
-  transcript.appendChild(card);
-  scrollToBottom(true);
-
-  const answer = (approved) => {
-    window.leslie.confirmResponse(id, approved);
-    card.classList.add('resolved');
-    pendingConfirms = Math.max(0, pendingConfirms - 1);
-  };
-  yes.addEventListener('click', () => answer(true));
-  no.addEventListener('click', () => answer(false));
-});
-
 const MODES = ['chat', 'plan', 'agent', 'assistant'];
 const MODE_META = {
   chat: { icon: 'fa-comment', label: 'Chat', say: '💬 Chat mode — just conversation.' },
@@ -680,6 +783,24 @@ agentToggle.addEventListener('click', () => {
   setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]);
 });
 window.leslie.onMode((next) => reflectMode(next));
+
+let autoApprove = false;
+
+function reflectAutoApprove(on) {
+  autoApprove = Boolean(on);
+  autoToggle.classList.toggle('on', autoApprove);
+  autoToggle.title = autoApprove
+    ? 'Auto mode: on — safe commands run without asking; destructive ones still ask. Click to turn off'
+    : 'Auto mode: off — click to run safe commands without asking';
+}
+
+autoToggle.addEventListener('click', async () => {
+  reflectAutoApprove(await window.leslie.setAutoApprove(!autoApprove));
+  systemLine(autoApprove
+    ? '⏩ Auto mode on — I\'ll run safe commands without asking. Anything destructive still needs your OK.'
+    : '⏸ Auto mode off — I\'ll ask before running commands.');
+});
+window.leslie.onAutoApprove(reflectAutoApprove);
 
 function clearTranscript() {
   transcript.innerHTML = '';
@@ -1061,6 +1182,10 @@ input.addEventListener('keydown', (event) => {
       stopRun();
       return;
     }
+    if (speech.busy()) {
+      speech.stop();
+      return;
+    }
     input.blur();
     setExpanded(false); // collapse back to the mascot
   }
@@ -1197,6 +1322,7 @@ async function stopRun() {
     } catch {
     }
   }
+  speech.stop();
   window.leslie.cancel();
 }
 
@@ -1229,6 +1355,7 @@ function typeText(text, autoSend) {
 }
 
 window.leslie.onVoiceWake(({ command }) => {
+  speech.stop();
   setExpanded(true);
   mic.classList.add('listening');
   if (!command) setStatus('Listening…');
@@ -1541,75 +1668,6 @@ piModelChip.addEventListener('click', () => PI_COMMANDS.model(''));
 piThinkingChip.addEventListener('click', () => PI_COMMANDS.thinking(''));
 piContextChip.addEventListener('click', () => PI_COMMANDS.session());
 
-// Extension dialogs (select / confirm / input / editor) from pi.
-function showDialog(req) {
-  setExpanded(true);
-  pendingConfirms++;
-  const card = document.createElement('div');
-  card.className = 'confirm-card';
-  if (req.title) {
-    const title = document.createElement('div');
-    title.className = 'cc-title';
-    title.textContent = req.title;
-    card.appendChild(title);
-  }
-  if (req.message) {
-    const text = document.createElement('div');
-    text.className = 'cc-text';
-    text.textContent = req.message;
-    card.appendChild(text);
-  }
-
-  let settled = false;
-  const finish = (payload) => {
-    if (settled) return;
-    settled = true;
-    if (payload) window.leslie.piUiResponse(req.id, payload);
-    card.classList.add('resolved');
-    pendingConfirms = Math.max(0, pendingConfirms - 1);
-  };
-  const button = (label, cls, onClick) => {
-    const b = document.createElement('button');
-    b.textContent = label;
-    if (cls) b.className = cls;
-    b.addEventListener('click', onClick);
-    return b;
-  };
-  const actions = document.createElement('div');
-  actions.className = 'cc-actions';
-  const cancel = button('Cancel', 'cc-no', () => finish({ cancelled: true }));
-
-  if (req.method === 'select') {
-    const options = document.createElement('div');
-    options.className = 'cc-options';
-    for (const opt of req.options || []) options.appendChild(button(opt, '', () => finish({ value: opt })));
-    card.appendChild(options);
-    actions.appendChild(cancel);
-  } else if (req.method === 'confirm') {
-    actions.append(button('Yes', 'cc-yes', () => finish({ confirmed: true })), button('No', 'cc-no', () => finish({ confirmed: false })));
-  } else {
-    const field = document.createElement(req.method === 'editor' ? 'textarea' : 'input');
-    field.className = 'cc-field';
-    if (req.method === 'editor') {
-      field.rows = 6;
-      field.value = req.prefill || '';
-    } else {
-      field.placeholder = req.placeholder || '';
-      field.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); finish({ value: field.value }); }
-      });
-    }
-    card.appendChild(field);
-    actions.append(button(req.method === 'editor' ? 'Save' : 'OK', 'cc-yes', () => finish({ value: field.value })), cancel);
-    setTimeout(() => field.focus(), 0);
-  }
-  card.appendChild(actions);
-  transcript.appendChild(card);
-  scrollToBottom(true);
-  // pi answers for itself when a dialog times out; just retire the card.
-  if (req.timeout) setTimeout(() => finish(null), req.timeout);
-}
-
 const contentText = (content) =>
   typeof content === 'string' ? content : (content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
 const imageCount = (content) => (Array.isArray(content) ? content.filter((b) => b.type === 'image').length : 0);
@@ -1692,6 +1750,14 @@ async function reloadTranscript() {
   else systemLine(GREETING);
 }
 
+// On pi the new session also triggers a transcript reload, so redraw from pi
+// before adding the notice rather than having the reload wipe it.
+window.leslie.onIdleReset(async (minutes) => {
+  if (engine === 'pi') await reloadTranscript();
+  else clearTranscript();
+  systemLine(`Started a fresh chat after ${minutes} minutes idle. The last one is in Settings, ready to resume.`);
+});
+
 async function refreshPiCommands() {
   try {
     piCommands = await pi('commands');
@@ -1757,9 +1823,6 @@ window.leslie.onPiEvent((ev) => {
       input.value = ev.text;
       autosize();
       input.focus();
-      break;
-    case 'ui':
-      showDialog(ev.request);
       break;
     case 'session':
       reloadTranscript();
@@ -1838,5 +1901,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     applyEngine('native');
   }
   window.leslie.getMode().then(reflectMode);
+  window.leslie.getAutoApprove().then(reflectAutoApprove);
   window.leslie.getAccent().then(applyAccent);
 });

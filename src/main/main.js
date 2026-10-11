@@ -20,6 +20,13 @@ const configStore = require('./configStore');
 const conversations = require('./conversations');
 const sysmon = require('./sysmon');
 const animations = require('./animations');
+const aseprite = require('./aseprite');
+const wardrobe = require('./wardrobe');
+const tts = require('./tts');
+const shortcuts = require('./shortcuts');
+const tools = require('./tools');
+const permissions = require('./permissions');
+const idleReset = require('./idleReset');
 const { parseSpriteCss } = require('./spriteGrid');
 const fsSuggest = require('./fsSuggest');
 const listDirectory = require('./tools/listDirectory');
@@ -65,7 +72,7 @@ function getAccent() {
 }
 
 function broadcastTheme(color) {
-  for (const w of [companionWindow, detailWindow, settingsWindow]) {
+  for (const w of [companionWindow, detailWindow, settingsWindow, permissions.window()]) {
     if (w && !w.isDestroyed()) w.webContents.send('theme:changed', color);
   }
 }
@@ -148,6 +155,60 @@ function broadcastAnimations() {
   }
 }
 
+const STATE_LABELS = {
+  idle: 'Idle', thinking: 'Thinking', longThink: 'Long think', toolCall: 'Tool call',
+  talking: 'Talking', listening: 'Listening', moving: 'Moving'
+};
+const ASEPRITE_FILTER = { name: 'Aseprite', extensions: aseprite.EXTENSIONS.map((e) => e.slice(1)) };
+
+/** Tray: pick an .aseprite file, add it to the library and optionally bind it to a state. */
+async function importAsepriteFromMenu() {
+  const pick = await dialog.showOpenDialog({
+    title: 'Choose an Aseprite animation',
+    filters: [ASEPRITE_FILTER],
+    properties: ['openFile']
+  });
+  if (pick.canceled || !pick.filePaths[0]) return;
+  const file = pick.filePaths[0];
+  try {
+    const clip = animations.importClip({ name: path.basename(file).replace(/\.(aseprite|ase)$/i, ''), pngPath: file });
+    const states = animations.STATES;
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      title: 'Play animation',
+      message: `Imported "${clip.name}" (${clip.frames} frames).`,
+      detail: 'Play it for which state? It replaces that state\'s current animation.',
+      buttons: [...states.map((s) => STATE_LABELS[s] || s), 'Just add to library'],
+      cancelId: states.length
+    });
+    if (response < states.length) animations.setBinding(states[response], [clip.id]);
+    broadcastAnimations();
+  } catch (err) {
+    dialog.showErrorBox('Aseprite import failed', err && err.message ? err.message : String(err));
+  }
+}
+
+/** Tray: convert .aseprite files to spritesheet PNG + CSS beside the originals. */
+async function convertAsepriteFromMenu() {
+  const pick = await dialog.showOpenDialog({
+    title: 'Convert Aseprite files to spritesheets',
+    filters: [ASEPRITE_FILTER],
+    properties: ['openFile', 'multiSelections']
+  });
+  if (pick.canceled || !pick.filePaths.length) return;
+  const failed = [];
+  let last = null;
+  for (const file of pick.filePaths) {
+    try {
+      last = aseprite.exportSheet(file);
+    } catch (err) {
+      failed.push(`${path.basename(file)}: ${err && err.message ? err.message : err}`);
+    }
+  }
+  if (failed.length) dialog.showErrorBox('Some files could not be converted', failed.join('\n'));
+  if (last) shell.showItemInFolder(last);
+}
+
 let trayProfile = null;
 
 function switchProfileFromTray(profile) {
@@ -168,6 +229,7 @@ function buildTrayMenu() {
       label: 'New conversation',
       click: () => {
         agent.reset();
+        idleReset.cleared();
         toSettings('settings:conversations-changed');
       }
     },
@@ -189,7 +251,28 @@ function buildTrayMenu() {
         modeItem('Assistant (one-off tasks, no history)', 'assistant')
       ]
     },
+    {
+      label: 'Animations',
+      submenu: [
+        { label: 'Import Aseprite file…', click: () => importAsepriteFromMenu() },
+        { label: 'Convert Aseprite to spritesheet…', click: () => convertAsepriteFromMenu() },
+        { type: 'separator' },
+        { label: 'Animation settings…', click: () => showSettingsWindow('animations') }
+      ]
+    },
     { type: 'separator' },
+    {
+      label: 'Speak replies',
+      type: 'checkbox',
+      checked: config.ttsEnabled,
+      click: (item) => tts.setEnabled(item.checked)
+    },
+    {
+      label: 'Auto mode (skip prompts for safe commands)',
+      type: 'checkbox',
+      checked: config.autoApprove,
+      click: (item) => setAutoApprove(item.checked)
+    },
     {
       label: 'Learning mode',
       type: 'checkbox',
@@ -236,6 +319,18 @@ function currentMode() {
   if (config.taskMode) return 'assistant';
   if (config.agentMode) return 'agent';
   return 'chat';
+}
+
+function setAutoApprove(on) {
+  const { value } = configStore.set('autoApprove', on);
+  autoApproveChanged(value);
+  return value;
+}
+
+function autoApproveChanged(value) {
+  if (tray) tray.setContextMenu(buildTrayMenu());
+  toCompanion('permissions:auto', value);
+  toSettings('settings:config-changed', { key: 'autoApprove', value });
 }
 
 // Assistant mode is agent mode's tools plus taskMode (no conversation history).
@@ -420,12 +515,28 @@ function toCompanion(channel, payload) {
 function onEngineChanged() {
   const pi = agent.pi();
   if (pi) pi.onUiEvent((ev) => {
+    if (ev.type === 'ui') return askPiDialog(pi, ev.request);
     toCompanion('pi:event', ev);
     toSettings('pi:event', ev);
   });
   else agent.shutdown();
   toCompanion('engine:changed', config.engine);
   toSettings('engine:changed', config.engine);
+}
+
+function askPiDialog(pi, req) {
+  const prompt = {
+    id: req.id,
+    source: 'pi',
+    method: req.method,
+    title: req.title,
+    message: req.message,
+    options: req.options,
+    placeholder: req.placeholder,
+    prefill: req.prefill
+  };
+  // pi answers for itself when a dialog times out; just retire the prompt.
+  permissions.request(prompt, (payload) => pi.respondUi(req.id, payload), req.timeout);
 }
 
 function countSentences(text) {
@@ -484,11 +595,17 @@ ipcMain.handle('agent:message', async (event, payload) => {
   const text = typeof payload === 'string' ? payload : (payload && payload.text) || '';
   const mentions = (payload && payload.mentions) || [];
   const images = (payload && payload.images) || [];
+  idleReset.userInput();
+
+  const shortcut = images.length ? null : shortcuts.match(text);
+  if (shortcut) return runShortcut(shortcut);
 
   const profile = profileCommand(text);
   if (profile) return switchProfileCommand(profile);
 
   modelServer.turnStarted();
+  idleReset.turnStarted();
+  const confirmIds = [];
   try {
     const mentionContext = await buildMentionContext(mentions);
     const { reply, aborted } = await agent.sendMessage(text, (ev) => {
@@ -513,7 +630,11 @@ ipcMain.handle('agent:message', async (event, payload) => {
           sender.send('agent:tool', ev);
           break;
         case 'confirm':
-          sender.send('agent:confirm', { id: ev.id, message: ev.message });
+          confirmIds.push(ev.id);
+          permissions.request(
+            { id: ev.id, source: 'leslie', method: 'approve', message: ev.message },
+            ({ approved }) => agent.resolveConfirm(ev.id, approved)
+          );
           break;
         case 'user-message':
           sender.send('agent:user-message');
@@ -526,8 +647,21 @@ ipcMain.handle('agent:message', async (event, payload) => {
     return { error: err && err.message ? err.message : String(err) };
   } finally {
     modelServer.turnEnded();
+    idleReset.turnEnded();
+    confirmIds.forEach(permissions.decline);
   }
 });
+
+async function runShortcut(shortcut) {
+  const ctx = { setMode: applyMode, openUrl: (url) => shell.openExternal(url) };
+  try {
+    const result = await tools.run(shortcut.tool, shortcut.args, ctx);
+    return { reply: shortcut.reply || shortcuts.describe(result) };
+  } catch (err) {
+    const why = /Unknown tool/.test(err.message) ? `${shortcut.tool} isn't available in this mode` : err.message;
+    return { error: `"${shortcut.phrases[0]}" failed: ${why}` };
+  }
+}
 
 // "power mode" / "everyday mode" — handled without the model so it is instant
 // and can't be misread; progress then shows as the model loads.
@@ -544,13 +678,21 @@ async function switchProfileCommand(profile) {
 }
 
 ipcMain.on('agent:cancel', () => {
+  permissions.declineAll('leslie');
   agent.cancel();
   if (researchAbort) researchAbort.abort();
 });
 
 ipcMain.handle('agent:reset', () => {
   agent.reset();
+  idleReset.cleared();
   return { ok: true };
+});
+
+idleReset.init(async () => {
+  await agent.reset();
+  toSettings('settings:conversations-changed');
+  toCompanion('agent:idle-reset', config.idleResetMinutes);
 });
 
 // Deep-research bypasses the agent loop to avoid context-window saturation.
@@ -563,6 +705,8 @@ ipcMain.handle('research:run', async (event, query) => {
   const sender = event.sender;
   const q = typeof query === 'string' ? query.trim() : '';
   if (!q) return { error: 'empty query' };
+  idleReset.userInput();
+  idleReset.turnStarted();
   await contextWindow.refresh();
   const controller = new AbortController();
   researchAbort = controller;
@@ -583,15 +727,13 @@ ipcMain.handle('research:run', async (event, query) => {
     return { error: err && err.message ? err.message : String(err) };
   } finally {
     if (researchAbort === controller) researchAbort = null;
+    idleReset.turnEnded();
   }
 });
 
-ipcMain.handle('agent:confirm-response', (_event, { id, approved } = {}) => {
-  agent.resolveConfirm(id, approved);
-  return { ok: true };
-});
-
 ipcMain.handle('agent:get-mode', () => currentMode());
+ipcMain.handle('permissions:get-auto', () => config.autoApprove);
+ipcMain.handle('permissions:set-auto', (_event, on) => setAutoApprove(on));
 
 ipcMain.handle('engine:get', () => config.engine);
 
@@ -640,13 +782,10 @@ ipcMain.handle('pi:command', async (_event, { name, args } = {}) => {
   }
 });
 
-ipcMain.handle('pi:ui-response', (_event, { id, payload } = {}) => {
-  if (agent.pi()) agent.pi().respondUi(id, payload);
-  return { ok: true };
-});
-
 ipcMain.handle('pi:bash', async (event, { command, excludeFromContext } = {}) => {
   const sender = event.sender;
+  idleReset.userInput();
+  idleReset.turnStarted();
   try {
     const data = await requirePi().runBash(String(command || ''), excludeFromContext, (delta) => {
       if (!sender.isDestroyed()) sender.send('pi:bash-chunk', delta);
@@ -654,6 +793,8 @@ ipcMain.handle('pi:bash', async (event, { command, excludeFromContext } = {}) =>
     return { ok: true, data };
   } catch (err) {
     return { ok: false, error: err && err.message ? err.message : String(err) };
+  } finally {
+    idleReset.turnEnded();
   }
 });
 ipcMain.handle('agent:set-mode', (_event, mode) => applyMode(mode));
@@ -673,8 +814,29 @@ ipcMain.handle('settings:set', (_event, { key, value } = {}) => {
     if (key === 'engine') onEngineChanged();
     if (configStore.VOICE_KEYS.includes(key)) reinitVoice();
     if (key === 'learningMode' && tray) tray.setContextMenu(buildTrayMenu());
+    if (key === 'autoApprove') autoApproveChanged(res.value);
+    if (key === 'ttsEnabled') tts.setEnabled(res.value);
+    if (key === 'idleResetMinutes') idleReset.settingChanged();
   }
   return res;
+});
+
+// Spoken replies: the companion asks per sentence and plays the audio itself.
+ipcMain.handle('tts:speak', (_event, text) => tts.speak(text));
+ipcMain.handle('tts:preview', (_event, voice) =>
+  tts.speak("Hi, I'm Leslie. This is how I'll sound when I read my replies to you.", { force: true, voice }));
+ipcMain.handle('tts:enabled', () => tts.isEnabled());
+ipcMain.on('tts:cancel', () => tts.cancel());
+// Her own voice would otherwise be transcribed (and could say her wake word).
+ipcMain.on('tts:playing', (_event, playing) => controlVoice('speaking', Boolean(playing)));
+
+ipcMain.handle('shortcuts:get', () => ({ shortcuts: shortcuts.list(), tools: tools.catalog() }));
+ipcMain.handle('shortcuts:save', (_event, list) => {
+  try {
+    return { ok: true, shortcuts: shortcuts.save(list) };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  }
 });
 
 ipcMain.handle('models:list', async () => {
@@ -711,6 +873,7 @@ ipcMain.handle('conv:list', () => (agent.pi() ? agent.pi().listSessions() : conv
 ipcMain.handle('conv:get', (_event, id) => (agent.pi() ? agent.pi().getSession(id) : conversations.get(id)));
 ipcMain.handle('conv:resume', (_event, id) => {
   const ok = agent.resume(id);
+  if (ok) idleReset.userInput();
   return { ok };
 });
 ipcMain.handle('conv:delete', async (_event, id) => {
@@ -724,10 +887,12 @@ ipcMain.handle('conv:clear', () => {
   if (agent.pi()) return { ok: false, error: 'Delete pi sessions one at a time.' };
   conversations.clear();
   agent.reset();
+  idleReset.cleared();
   return { ok: true };
 });
 ipcMain.handle('conv:new', () => {
   agent.reset();
+  idleReset.cleared();
   return { ok: true };
 });
 
@@ -748,14 +913,17 @@ ipcMain.handle('anim:config', () => animations.getConfig());
 ipcMain.handle('anim:import', async () => {
   const parent = settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow : undefined;
   const png = await dialog.showOpenDialog(parent, {
-    title: 'Choose a spritesheet PNG',
-    filters: [{ name: 'PNG image', extensions: ['png'] }],
+    title: 'Choose a spritesheet PNG or Aseprite file',
+    filters: [
+      { name: 'Spritesheet', extensions: ['png', ...aseprite.EXTENSIONS.map((e) => e.slice(1))] }
+    ],
     properties: ['openFile']
   });
   if (png.canceled || !png.filePaths[0]) return { cancelled: true };
   const pngPath = png.filePaths[0];
+  const isAse = aseprite.isAsepritePath(pngPath);
 
-  const cssPick = await dialog.showOpenDialog(parent, {
+  const cssPick = isAse ? { canceled: true } : await dialog.showOpenDialog(parent, {
     title: 'Choose the matching spritesheet.css (Cancel to enter the grid manually)',
     filters: [{ name: 'CSS', extensions: ['css'] }],
     properties: ['openFile']
@@ -770,7 +938,7 @@ ipcMain.handle('anim:import', async () => {
   }
 
   try {
-    const name = path.basename(pngPath).replace(/\.png$/i, '');
+    const name = path.basename(pngPath).replace(/\.(png|aseprite|ase)$/i, '');
     const clip = animations.importClip({ name, pngPath, grid, frameMs: 140 });
     broadcastAnimations();
     return { ok: true, clip, config: animations.getConfig() };
@@ -795,6 +963,14 @@ ipcMain.handle('anim:set-binding', (_event, { state, ids } = {}) => {
   const bindings = animations.setBinding(state, ids);
   broadcastAnimations();
   return { ok: true, bindings, config: animations.getConfig() };
+});
+
+ipcMain.handle('wardrobe:get', () => wardrobe.getState());
+
+ipcMain.handle('wardrobe:set', (_event, patch) => {
+  const state = wardrobe.update(patch || {});
+  broadcastAnimations();
+  return state;
 });
 
 ipcMain.on('settings:open', (_event, panel) => showSettingsWindow(panel));
@@ -897,10 +1073,18 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.whenReady().then(() => {
+  // leslie-sprite://clips/<file> serves imported clips; leslie-sprite://builtin/<path> serves bundled ones.
+  // .aseprite files are flattened into a spritesheet PNG on the fly.
   protocol.handle('leslie-sprite', (request) => {
     try {
       const url = new URL(request.url);
-      const file = path.join(animations.clipsDir(), path.basename(url.pathname));
+      const file = url.hostname === 'builtin'
+        ? animations.builtinPath(decodeURIComponent(url.pathname).replace(/^\/+/, ''))
+        : path.join(animations.clipsDir(), path.basename(url.pathname));
+      if (aseprite.isAsepritePath(file)) {
+        const sheet = aseprite.loadSheet(file, wardrobe.fromQuery(url.searchParams));
+        return new Response(sheet.png, { headers: { 'Content-Type': 'image/png' } });
+      }
       return net.fetch(pathToFileURL(file).toString());
     } catch {
       return new Response('Not found', { status: 404 });
@@ -922,13 +1106,21 @@ app.whenReady().then(() => {
 
   configStore.applyPersisted();
   contextWindow.refresh();
+  permissions.init({ icon: APP_ICON });
   onEngineChanged();
   modelServer.startup();
 
   createWindow();
   createDetailWindow();
+  wardrobe.watchSchedule(broadcastAnimations);
   if (config.voiceEnabled) createVoiceWindow();
   createTray();
+  tts.onEnabled((on) => {
+    toCompanion('tts:enabled', on);
+    toSettings('settings:config-changed', { key: 'ttsEnabled', value: on });
+    if (tray) tray.setContextMenu(buildTrayMenu());
+  });
+  tts.warm();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -939,6 +1131,7 @@ app.on('before-quit', () => {
   app.isQuitting = true;
   agent.shutdown();
   screenRecord.stop().catch(() => {});
+  tts.shutdown();
 });
 
 app.on('window-all-closed', () => {

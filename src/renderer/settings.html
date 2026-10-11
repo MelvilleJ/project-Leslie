@@ -30,6 +30,7 @@
       <button class="nav-item" data-panel="behaviour" type="button">🧠 Behaviour</button>
       <button class="nav-item" data-panel="voice" type="button">🎤 Voice</button>
       <button class="nav-item" data-panel="animations" type="button">🎬 Animations</button>
+      <button class="nav-item" data-panel="wardrobe" type="button">👗 Wardrobe</button>
       <button class="nav-item" data-panel="appearance" type="button">🎨 Appearance</button>
       <button class="nav-item" data-panel="memory" type="button">💾 Memory</button>
       <button class="nav-item" data-panel="about" type="button">ℹ️ About</button>
@@ -71,13 +72,19 @@
           <div class="field">
             <div class="field-label">
               <span class="name">Start at login</span>
-              <span class="help">Runs llama.cpp as the <code>leslie-llama</code> user service and loads the Everyday model when you log in.</span>
+              <span class="help">Starts the shared <code>llama-router</code> user service at login, which loads the Everyday model.</span>
             </div>
             <div class="field-control"><label class="switch"><input type="checkbox" id="srv-enabled" /><span class="slider"></span></label></div>
           </div>
         </div>
         <div id="srv-gpus" class="cards" style="margin-bottom:14px"></div>
         <div id="srv-profiles" class="cards"></div>
+        <div class="panel-head srv-presets-head"><h2>Per-model presets</h2>
+          <div class="panel-actions"><select id="srv-preset-model"></select>
+            <button id="srv-preset-add" class="btn" type="button">Add preset</button></div>
+        </div>
+        <div class="muted small" style="margin-bottom:10px">Settings for models that aren&#8217;t Everyday or Power. Without one, llama.cpp shrinks the context to whatever VRAM is free when the model loads.</div>
+        <div id="srv-presets" class="cards"></div>
         <pre id="srv-log" class="srv-log hidden"></pre>
       </section>
 
@@ -112,7 +119,20 @@
 
       <section class="panel" data-panel="voice">
         <div class="panel-head"><h2>Voice</h2></div>
+        <h3 class="subhead">Listening</h3>
         <div id="form-voice" class="form"></div>
+        <h3 class="subhead">Speech</h3>
+        <div id="form-speech" class="form"></div>
+        <div class="panel-head subhead-row">
+          <h3 class="subhead">Voice shortcuts</h3>
+          <button id="shortcut-add" class="btn small" type="button">＋ Add shortcut</button>
+        </div>
+        <p class="muted small" style="margin-bottom:10px">
+          Say (or type) one of the phrases on its own and LESLIE runs the tool straight away, without
+          asking the model. "Hey Leslie", "please" and punctuation are ignored. Separate alternative
+          phrases with commas.
+        </p>
+        <div id="shortcut-list" class="shortcut-list"></div>
       </section>
 
       <section class="panel" data-panel="animations">
@@ -123,14 +143,28 @@
           </div>
         </div>
         <p class="muted small" style="margin-bottom:14px">
-          Upload a spritesheet PNG (and its matching <code>spritesheet.css</code> to auto-fill the
-          grid), then bind clips to character states below. Idle accepts several clips and rotates
+          Upload an Aseprite file (<code>.aseprite</code>/<code>.ase</code>, grid read automatically) or a
+          spritesheet PNG (and its matching <code>spritesheet.css</code> to auto-fill the grid), then bind clips to character states below. Idle accepts several clips and rotates
           between them.
         </p>
         <h3 class="subhead">Clip library</h3>
         <div id="anim-library" class="cards anim-cards"></div>
         <h3 class="subhead">State bindings</h3>
         <div id="anim-bindings" class="form"></div>
+      </section>
+
+      <section class="panel" data-panel="wardrobe">
+        <div class="panel-head"><h2>Wardrobe</h2></div>
+        <p class="muted small" style="margin-bottom:14px">
+          Dress the pixel avatar. Pick an outfit yourself, or let her change with the time of day. Clothes are the
+          layers inside the <code>top</code>, <code>bottom</code> and <code>shoes</code> groups of
+          <code>assets/animations/pixel/wardrobe/*.aseprite</code>. Draw a new layer in a group in Aseprite and it
+          shows up here.
+        </p>
+        <div class="wardrobe-layout">
+          <div id="wardrobe-preview" class="wardrobe-preview"></div>
+          <div id="wardrobe-form" class="form"></div>
+        </div>
       </section>
 
       <section class="panel" data-panel="appearance">

@@ -91,10 +91,17 @@ contextBridge.exposeInMainWorld('settingsApi', {
   /** Subscribe to accent changes from any window. */
   onTheme: (cb) => ipcRenderer.on('theme:changed', (_e, color) => cb(color)),
 
+  // --- Speech + shortcuts ----------------------------------------------------
+  /** Synthesize the preview line in `voice` (even while muted). */
+  ttsPreview: (voice) => ipcRenderer.invoke('tts:preview', voice),
+  /** { shortcuts, tools } — tools carry name/description/parameters for the editor. */
+  getShortcuts: () => ipcRenderer.invoke('shortcuts:get'),
+  saveShortcuts: (list) => ipcRenderer.invoke('shortcuts:save', list),
+
   // --- Animations -----------------------------------------------------------
   /** Library + bindings: { clips, bindings, states }. */
   getAnimations: () => ipcRenderer.invoke('anim:config'),
-  /** Open file dialogs to import a spritesheet (PNG + optional .css grid). */
+  /** Open file dialogs to import a spritesheet (.aseprite, or PNG + optional .css grid). */
   importAnimation: () => ipcRenderer.invoke('anim:import'),
   /** Patch an uploaded clip's name/grid/speed. */
   updateClip: (id, patch) => ipcRenderer.invoke('anim:update', { id, patch }),
@@ -102,6 +109,10 @@ contextBridge.exposeInMainWorld('settingsApi', {
   deleteAnimation: (id) => ipcRenderer.invoke('anim:delete', id),
   /** Bind a state to clip id(s). */
   setBinding: (state, ids) => ipcRenderer.invoke('anim:set-binding', { state, ids }),
+  /** Wardrobe: { mode, outfit, schedule, periods, period, current, catalog, slots }. */
+  getWardrobe: () => ipcRenderer.invoke('wardrobe:get'),
+  /** Patch { mode } | { outfit: { slot: item } } | { schedule: { period: { slot: item } } }; resolves the new state. */
+  setWardrobe: (patch) => ipcRenderer.invoke('wardrobe:set', patch),
   /** Subscribe to live animation-config changes. */
   onAnimationsChanged: (cb) => {
     const l = (_e, cfg) => cb(cfg || {});

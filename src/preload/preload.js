@@ -21,7 +21,6 @@ contextBridge.exposeInMainWorld('leslie', {
   },
   /** Run a pi backend command (model, thinking, compact, fork, …). Resolves { ok, data | error }. */
   pi: (name, args) => ipcRenderer.invoke('pi:command', { name, args }),
-  piUiResponse: (id, payload) => ipcRenderer.invoke('pi:ui-response', { id, payload }),
   piBash: (command, excludeFromContext) => ipcRenderer.invoke('pi:bash', { command, excludeFromContext }),
   onPiBashChunk: (cb) => {
     const l = (_e, delta) => cb(delta);
@@ -57,6 +56,11 @@ contextBridge.exposeInMainWorld('leslie', {
     return () => ipcRenderer.removeListener('agent:to-details', listener);
   },
   resetChat: () => ipcRenderer.invoke('agent:reset'),
+  onIdleReset: (callback) => {
+    const listener = (_event, minutes) => callback(minutes);
+    ipcRenderer.on('agent:idle-reset', listener);
+    return () => ipcRenderer.removeListener('agent:idle-reset', listener);
+  },
   cancel: () => ipcRenderer.send('agent:cancel'),
   runResearch: (query) => ipcRenderer.invoke('research:run', query),
   onResearchProgress: (cb) => {
@@ -64,13 +68,13 @@ contextBridge.exposeInMainWorld('leslie', {
     ipcRenderer.on('research:progress', l);
     return () => ipcRenderer.removeListener('research:progress', l);
   },
-  onConfirm: (callback) => {
-    const listener = (_event, req) => callback(req || {});
-    ipcRenderer.on('agent:confirm', listener);
-    return () => ipcRenderer.removeListener('agent:confirm', listener);
+  getAutoApprove: () => ipcRenderer.invoke('permissions:get-auto'),
+  setAutoApprove: (on) => ipcRenderer.invoke('permissions:set-auto', on),
+  onAutoApprove: (callback) => {
+    const listener = (_event, on) => callback(on);
+    ipcRenderer.on('permissions:auto', listener);
+    return () => ipcRenderer.removeListener('permissions:auto', listener);
   },
-  confirmResponse: (id, approved) =>
-    ipcRenderer.invoke('agent:confirm-response', { id, approved }),
   getMode: () => ipcRenderer.invoke('agent:get-mode'),
   setMode: (mode) => ipcRenderer.invoke('agent:set-mode', mode),
   onMode: (callback) => {
@@ -126,6 +130,15 @@ contextBridge.exposeInMainWorld('leslie', {
 
   getAccent: () => ipcRenderer.invoke('theme:get'),
   onTheme: (cb) => ipcRenderer.on('theme:changed', (_e, color) => cb(color)),
+
+  // --- Spoken replies --------------------------------------------------------
+  /** Synthesize one sentence → { samples: Float32Array, sampleRate } or null (muted/cancelled). */
+  ttsSpeak: (text) => ipcRenderer.invoke('tts:speak', text),
+  ttsCancel: () => ipcRenderer.send('tts:cancel'),
+  /** Tell the voice listener she's talking, so it ignores her own voice. */
+  ttsPlaying: (playing) => ipcRenderer.send('tts:playing', Boolean(playing)),
+  getTtsEnabled: () => ipcRenderer.invoke('tts:enabled'),
+  onTtsEnabled: (cb) => ipcRenderer.on('tts:enabled', (_e, on) => cb(Boolean(on))),
 
   getAnimations: () => ipcRenderer.invoke('anim:config'),
   onAnimations: (cb) => {

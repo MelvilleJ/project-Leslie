@@ -37,16 +37,39 @@ If the bubble shows a connection error, the server isn't reachable at that URL.
 
 ```bash
 npm run install:linux     # build + install to ~/.local/opt/leslie, enable services
-systemctl --user start leslie-llama leslie
+systemctl --user start llama-router leslie
 ```
 
 This installs per-user (no root): the app, `leslie` and `leslie-server` in
-`~/.local/bin`, launcher entries, icons, and two systemd user services that start
-at login — `leslie-llama` (llama.cpp router, loads the **Everyday** model) and
-`leslie` (the app). The installed app reads `~/.config/project-leslie/.env`
-(a link to this repo's `.env`).
+`~/.local/bin`, launcher entries, icons, and the `leslie` systemd user service
+that starts the app at login. The installed app reads
+`~/.config/project-leslie/.env` (a link to this repo's `.env`).
 
-### Model server: Everyday / Power
+### Model server: the shared llama-router service
+
+LESLIE doesn't own a model server. It uses `llama-router`, a general systemd user
+service running llama.cpp in router mode on `127.0.0.1:8080` that any app can
+use (it serves every model in `~/models` through the OpenAI API at `/v1`).
+`install:linux` sets it up if it's missing; to set it up on its own:
+
+```bash
+bash scripts/setup-llama-router.sh   # MODELS=… PORT=… to override ~/models and 8080
+systemctl --user start llama-router
+```
+
+| File | Owner |
+|---|---|
+| `~/.config/systemd/user/llama-router.service` | the service; LESLIE never writes it |
+| `~/.config/llama-router/presets.ini` | shared per-model settings; LESLIE rewrites only sections tagged `; managed by LESLIE` |
+| `~/.config/project-leslie/llama-server.json` | LESLIE's profiles and model presets |
+
+LESLIE writes its sections whenever you change its model settings and before it
+starts or restarts the service. Another section is left alone unless it names a
+model LESLIE configures, in which case LESLIE's version replaces it. A changed
+presets file takes effect on the next service restart. If the service runs
+elsewhere, set `unit`, `presetsFile`, `host` and `port` in `llama-server.json`.
+
+### Everyday / Power profiles
 
 | Profile | Default model | GPUs |
 |---|---|---|
@@ -57,7 +80,8 @@ Switch with `/everyday` / `/power`, the model chip's picker, the tray's **Model*
 menu, **Settings → Models & GPUs** (start/stop/restart, log, VRAM, per-profile model,
 GPUs, context), or the terminal: `leslie-server` (interactive) /
 `leslie-server power`. llama.cpp's `--fit` sizes GPU/RAM offload to each profile's
-GPUs. Settings live in `~/.config/project-leslie/llama-server.json`.
+GPUs. Everyday's section carries `load-on-startup`, so the service loads it
+whenever it starts, with or without LESLIE running.
 
 ### Modes
 
@@ -71,7 +95,7 @@ so your chat session is untouched. Good for voice: "Leslie, launch Warframe".
 
 `bash scripts/setup-whisper.sh` builds whisper.cpp (CUDA) and runs Whisper
 large-v3-turbo as the `leslie-whisper` user service on `127.0.0.1:8178` (~0.9 GB on
-the RTX 3060, ~0.2 s per utterance). It starts before `leslie-llama`, so llama.cpp's
+the RTX 3060, ~0.2 s per utterance). It starts before `llama-router`, so llama.cpp's
 `--fit` sizes the Everyday model around it. Settings → Voice → Speech recognition
 switches between it and the slower in-app model.
 

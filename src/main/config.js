@@ -47,7 +47,7 @@ module.exports = {
   piModel: env.LESLIE_PI_MODEL || '',
   piCwd: env.LESLIE_PI_CWD || '',
 
-  // LESLIE runs llama.cpp (the leslie-llama user service) and points itself at
+  // LESLIE drives the shared llama-router user service and points itself at
   // it; off = use LESLIE_BASE_URL / LESLIE_MODEL as given.
   serverManaged: env.LESLIE_SERVER_MANAGED !== '0',
 
@@ -91,11 +91,18 @@ module.exports = {
 
   planMode: env.LESLIE_PLAN_MODE === '1',
 
+  // Auto mode: run commands and create files without asking unless they look
+  // destructive (see tools/lib/destructive.js).
+  autoApprove: env.LESLIE_AUTO_APPROVE === '1',
+
   // Assistant mode: every message is a one-off task with no conversation history.
   taskMode: false,
 
   learningMode: env.LESLIE_LEARNING !== '0',
   learnEvery: Number(env.LESLIE_LEARN_EVERY ?? 3),
+
+  // Minutes without a message from the user before the chat starts fresh; 0 = never.
+  idleResetMinutes: Number(env.LESLIE_IDLE_RESET_MINUTES ?? 30),
 
   toolRag: env.LESLIE_TOOL_RAG !== '0',
   toolRagEmbeddings: env.LESLIE_TOOL_RAG_EMBEDDINGS === '1',
@@ -176,7 +183,12 @@ module.exports = {
   sttServerModel: env.LESLIE_STT_SERVER_MODEL || 'large-v3-turbo',
   sttServerApiKey: env.LESLIE_STT_SERVER_API_KEY || '',
   wakeTimeoutMs: Number(env.LESLIE_WAKE_TIMEOUT_MS ?? 8000),
-  voiceAutoSend: env.LESLIE_VOICE_AUTOSEND !== '0'
+  voiceAutoSend: env.LESLIE_VOICE_AUTOSEND !== '0',
+
+  // Spoken replies: Kokoro-82M on the CPU (model downloads on first use).
+  ttsEnabled: env.LESLIE_TTS !== '0',
+  ttsVoice: env.LESLIE_TTS_VOICE || 'af_heart',
+  ttsSpeed: Number(env.LESLIE_TTS_SPEED ?? 1)
 };
 
 require('./contextWindow').install(module.exports);

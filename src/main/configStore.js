@@ -2,6 +2,7 @@
 
 const config = require('./config');
 const settings = require('./settings');
+const { VOICES } = require('./tts/voices');
 
 const SCHEMA = [
   { key: 'engine', type: 'select', group: 'Connection', label: 'Agent engine',
@@ -63,8 +64,13 @@ const SCHEMA = [
   { key: 'detailedResponses', type: 'boolean', group: 'Behaviour', label: 'Detailed answers (side window)' },
   { key: 'detailSentenceThreshold', type: 'number', group: 'Behaviour',
     label: 'Sentences before moving to details', min: 1, max: 20, step: 1 },
+  { key: 'autoApprove', type: 'boolean', group: 'Behaviour', label: 'Auto mode',
+    help: 'Run commands without asking unless they look destructive (deleting, overwriting, sudo, uninstalling, killing processes…).' },
   { key: 'learningMode', type: 'boolean', group: 'Behaviour', label: 'Learning mode',
     help: 'Remember durable preferences across sessions.' },
+  { key: 'idleResetMinutes', type: 'number', group: 'Behaviour', label: 'Reset chat after idle (minutes)',
+    min: 0, max: 1440, step: 5,
+    help: 'Starts a fresh chat after this long without a message from you, in every mode. The old chat stays under Conversations, ready to resume. 0 = never.' },
   { key: 'searchResults', type: 'number', group: 'Behaviour', label: 'Search results fed back',
     min: 1, max: 20, step: 1 },
 
@@ -79,7 +85,15 @@ const SCHEMA = [
     help: 'OpenAI-style endpoint, including /v1.' },
   { key: 'voiceAutoSend', type: 'boolean', group: 'Voice', label: 'Auto-send dictated text' },
   { key: 'wakeWord', type: 'string', group: 'Voice', label: 'Wake word',
-    help: 'Matching is fuzzy and keys on the last word.' }
+    help: 'Matching is fuzzy and keys on the last word.' },
+
+  { key: 'ttsEnabled', type: 'boolean', group: 'Speech', label: 'Speak replies',
+    help: 'Reads replies aloud with Kokoro-82M on the CPU. Say "mute" / "unmute" to toggle.' },
+  { key: 'ttsVoice', type: 'select', group: 'Speech', label: 'Voice',
+    options: VOICES.map((v) => ({ value: v.id, label: v.label })),
+    help: 'Grades are from the model card; A/B voices sound most natural.' },
+  { key: 'ttsSpeed', type: 'number', group: 'Speech', label: 'Speaking speed',
+    min: 0.5, max: 2, step: 0.1 }
 ];
 
 const BY_KEY = new Map(SCHEMA.map((f) => [f.key, f]));
