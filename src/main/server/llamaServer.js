@@ -1,9 +1,11 @@
 'use strict';
 
-// Runs llama.cpp's router as a systemd user service (leslie-llama) and switches
-// between two model profiles: "everyday" (fits the RTX 3060 alone, loaded at
-// login) and "power" (split across both GPUs). No Electron dependencies, so the
-// terminal TUI (bin/leslie-server) shares it.
+// Drives the shared llama.cpp router (the llama-router user service, set up by
+// scripts/setup-llama-router.sh and usable by any app) and switches between two
+// model profiles: "everyday" (fits the RTX 3060 alone, loaded at
+// login) and "power" (split across both GPUs). Either profile can opt into stopping
+// speech recognition with stopsWhisper. No Electron dependencies, so the terminal TUI
+// (bin/leslie-server) shares it.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -12,14 +14,15 @@ const { execFile } = require('node:child_process');
 
 const CONFIG_DIR = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'project-leslie');
 const SETTINGS_FILE = path.join(CONFIG_DIR, 'llama-server.json');
-const PRESETS_FILE = path.join(CONFIG_DIR, 'llama-presets.ini');
-const UNIT = 'leslie-llama.service';
-const UNIT_FILE = path.join(os.homedir(), '.config', 'systemd', 'user', UNIT);
+const UNITS_DIR = path.join(os.homedir(), '.config', 'systemd', 'user');
+const WHISPER_UNIT = 'leslie-whisper.service';
 
 const PROFILES = ['everyday', 'power'];
 
 const DEFAULTS = {
-  binary: 'llama-server',
+  // Must match the router's unit (--models-dir, --models-preset, --host, --port).
+  unit: 'llama-router.service',
+  presetsFile: path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'llama-router', 'presets.ini'),
   modelsDir: path.join(os.homedir(), 'models'),
   host: '127.0.0.1',
   port: 8080,
@@ -31,7 +34,10 @@ const DEFAULTS = {
       model: 'gpt-oss-20b-unsloth',
       devices: 'CUDA0',
       tensorSplit: '',
-      ctx: 32768,
+      ctx: 65536,
+      cacheType: '',
+      specType: '',
+      stopsWhisper: false,
       // null = let llama.cpp's --fit decide how much to offload to RAM for this GPU.
       cpuMoeLayers: null
     },
@@ -40,12 +46,40 @@ const DEFAULTS = {
       description: 'RTX 3060 + RX 9060 XT — the strongest model',
       model: 'Qwen3.8-27B-UD-Q4_K_M',
       devices: 'CUDA0,Vulkan0',
-      tensorSplit: '12,16',
-      ctx: 65536,
+      // Tuned with whisper stopped: 12,16 overfills the RX once the MTP draft
+      // context is allocated, and anything lower wastes the 3060's bandwidth.
+      tensorSplit: '11,17',
+      ctx: 131072,
+      // q8_0 halves the KV cache, which is what makes 128k fit.
+      cacheType: 'q8_0',
+      // Qwen3.8 ships a multi-token-prediction head; ~1.3-1.9x faster decoding.
+      specType: 'draft-mtp',
+      stopsWhisper: false,
       cpuMoeLayers: null
     }
-  }
+  },
+  // Router settings for models outside the two profiles, keyed by model id.
+  // Without one, the router loads a model with no ctx-size and --fit shrinks the
+  // context to whatever VRAM happens to be free.
+  modelPresets: {}
 };
+
+const PRESET_FIELDS = ['devices', 'tensorSplit', 'ctx', 'cacheType', 'specType', 'cpuMoeLayers'];
+
+const PRESET_DEFAULTS = {
+  devices: 'CUDA0,Vulkan0',
+  tensorSplit: '',
+  ctx: 32768,
+  cacheType: '',
+  specType: '',
+  cpuMoeLayers: null
+};
+
+function cleanPreset(preset) {
+  const out = { ...PRESET_DEFAULTS };
+  for (const key of PRESET_FIELDS) if (preset[key] !== undefined) out[key] = preset[key];
+  return out;
+}
 
 // --- Settings ---------------------------------------------------------------
 
@@ -57,7 +91,9 @@ function loadSettings() {
   }
   const profiles = {};
   for (const name of PROFILES) profiles[name] = { ...DEFAULTS.profiles[name], ...((saved.profiles || {})[name] || {}) };
-  return { ...DEFAULTS, ...saved, profiles };
+  const modelPresets = {};
+  for (const [id, preset] of Object.entries(saved.modelPresets || {})) modelPresets[id] = cleanPreset(preset);
+  return { ...DEFAULTS, ...saved, profiles, modelPresets };
 }
 
 function saveSettings(patch) {
@@ -65,6 +101,12 @@ function saveSettings(patch) {
   const next = { ...current, ...patch, profiles: { ...current.profiles } };
   for (const name of PROFILES) {
     if (patch.profiles && patch.profiles[name]) next.profiles[name] = { ...current.profiles[name], ...patch.profiles[name] };
+  }
+  // A null entry removes that model's preset.
+  next.modelPresets = { ...current.modelPresets };
+  for (const [id, preset] of Object.entries(patch.modelPresets || {})) {
+    if (preset === null) delete next.modelPresets[id];
+    else next.modelPresets[id] = cleanPreset({ ...next.modelPresets[id], ...preset });
   }
   if (next.profiles.everyday.model === next.profiles.power.model) {
     throw new Error('Everyday and Power need different models.');
@@ -122,76 +164,64 @@ function listModels(settings = loadSettings()) {
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-// --- Presets + unit ---------------------------------------------------------
+// --- Shared presets file ----------------------------------------------------
 
-function presetSection(profile, entry, loadOnStartup) {
-  const lines = [`[${profile.model}]`, `model = ${entry.model}`];
+// Tags the sections LESLIE owns in the shared presets file; everything else in
+// it belongs to the user or other apps and is left alone.
+const MANAGED = '; managed by LESLIE';
+const NEW_PRESETS = 'version = 1\n\n[*]\njinja = true\n';
+
+function presetSection(id, profile, entry, loadOnStartup, threads) {
+  const lines = [`[${id}]`, MANAGED, `model = ${entry.model}`];
   if (entry.mmproj) lines.push(`mmproj = ${entry.mmproj}`);
-  lines.push(`device = ${profile.devices}`, `ctx-size = ${profile.ctx}`);
+  lines.push(`threads = ${threads}`, `device = ${profile.devices}`, `ctx-size = ${profile.ctx}`);
   if (profile.tensorSplit) lines.push(`tensor-split = ${profile.tensorSplit}`);
   if (profile.cpuMoeLayers > 0) lines.push(`n-cpu-moe = ${profile.cpuMoeLayers}`);
+  if (profile.cacheType) lines.push(`cache-type-k = ${profile.cacheType}`, `cache-type-v = ${profile.cacheType}`);
+  if (profile.specType) lines.push(`spec-type = ${profile.specType}`);
   if (loadOnStartup) lines.push('load-on-startup = true');
   return lines.join('\n');
 }
 
+/** Rewrite LESLIE's sections of the shared presets file, keeping the rest. Returns true when it changed. */
 function writePresets(settings = loadSettings()) {
   const models = new Map(listModels(settings).map((m) => [m.id, m]));
   // GPU layers and expert offload are left unset so llama.cpp's --fit sizes them
   // to each profile's devices; setting them globally would switch fitting off.
-  const sections = ['version = 1', '', '[*]', 'jinja = true', `threads = ${settings.threads}`];
+  const ours = new Map();
   for (const name of PROFILES) {
     const profile = settings.profiles[name];
     const entry = models.get(profile.model);
-    if (entry) sections.push('', presetSection(profile, entry, name === 'everyday'));
+    if (entry) ours.set(profile.model, presetSection(profile.model, profile, entry, name === 'everyday', settings.threads));
   }
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(PRESETS_FILE, `${sections.join('\n')}\n`);
-  return PRESETS_FILE;
-}
-
-function which(bin) {
-  if (path.isAbsolute(bin)) return bin;
-  for (const dir of (process.env.PATH || '').split(':')) {
-    const p = path.join(dir, bin);
-    try {
-      fs.accessSync(p, fs.constants.X_OK);
-      return p;
-    } catch {
-    }
+  for (const [id, preset] of Object.entries(settings.modelPresets)) {
+    const entry = models.get(id);
+    // A profile's own settings win over a preset for the same model.
+    if (entry && !ours.has(id)) ours.set(id, presetSection(id, preset, entry, false, settings.threads));
   }
-  return bin;
+
+  let old = NEW_PRESETS;
+  try {
+    old = fs.readFileSync(settings.presetsFile, 'utf8');
+  } catch {
+  }
+  // Split before each [section] header; LESLIE's sections (and any section for a
+  // model LESLIE now configures) are dropped and re-added below.
+  const [preamble, ...sections] = `\n${old}`.split(/^(?=\[[^\]\n]+\]\s*$)/m);
+  const kept = sections.filter((sec) => {
+    const id = sec.match(/^\[([^\]\n]+)\]/)[1];
+    return id === '*' || (!sec.split('\n').includes(MANAGED) && !ours.has(id));
+  });
+  const text = `${[preamble, ...kept].map((s) => s.trim()).filter(Boolean).concat([...ours.values()]).join('\n\n')}\n`;
+  if (text === old) return false;
+  fs.mkdirSync(path.dirname(settings.presetsFile), { recursive: true });
+  fs.writeFileSync(settings.presetsFile, text);
+  return true;
 }
 
-function unitText(settings) {
-  const args = [
-    which(settings.binary),
-    '--models-dir', settings.modelsDir,
-    '--models-preset', PRESETS_FILE,
-    '--no-models-autoload',
-    '--host', settings.host,
-    '--port', String(settings.port)
-  ];
-  return [
-    '[Unit]',
-    'Description=LESLIE model server (llama.cpp router)',
-    // Let the speech server claim its VRAM first so --fit sizes models around it.
-    'After=network.target leslie-whisper.service',
-    '',
-    '[Service]',
-    `ExecStart=${args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`,
-    'Restart=on-failure',
-    'RestartSec=5',
-    'TimeoutStopSec=30',
-    '',
-    '[Install]',
-    'WantedBy=default.target',
-    ''
-  ].join('\n');
-}
-
-function run(cmd, args) {
+function run(cmd, args, timeout = 30000) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout: 30000 }, (err, stdout, stderr) =>
+    execFile(cmd, args, { timeout }, (err, stdout, stderr) =>
       resolve({ ok: !err, code: err ? err.code : 0, stdout: String(stdout), stderr: String(stderr) })
     );
   });
@@ -199,36 +229,37 @@ function run(cmd, args) {
 
 const systemctl = (...args) => run('systemctl', ['--user', ...args]);
 
-/** Write presets + the unit file; returns true when the unit changed (restart needed). */
-async function installService(settings = loadSettings()) {
-  writePresets(settings);
-  const text = unitText(settings);
-  let old = '';
-  try {
-    old = fs.readFileSync(UNIT_FILE, 'utf8');
-  } catch {
-  }
-  if (old === text) return false;
-  fs.mkdirSync(path.dirname(UNIT_FILE), { recursive: true });
-  fs.writeFileSync(UNIT_FILE, text);
-  await systemctl('daemon-reload');
-  return true;
+async function serviceState(unit = loadSettings().unit) {
+  const [active, enabled] = await Promise.all([systemctl('is-active', unit), systemctl('is-enabled', unit)]);
+  const state = enabled.stdout.trim();
+  // is-enabled prints "not-found" (and fails) when no such unit exists.
+  return { unit, active: active.stdout.trim() || 'unknown', enabled: state === 'enabled', installed: Boolean(state) && state !== 'not-found' };
 }
 
-async function serviceState() {
-  const [active, enabled] = await Promise.all([systemctl('is-active', UNIT), systemctl('is-enabled', UNIT)]);
-  return { active: active.stdout.trim() || 'unknown', enabled: enabled.stdout.trim() === 'enabled', installed: fs.existsSync(UNIT_FILE) };
+/** Start or stop speech recognition; a no-op where it was never set up. */
+async function setWhisper(on) {
+  if (!fs.existsSync(path.join(UNITS_DIR, WHISPER_UNIT))) return;
+  const res = await run('systemctl', ['--user', on ? 'start' : 'stop', WHISPER_UNIT], 90000);
+  if (!res.ok) throw new Error(res.stderr.trim() || `could not ${on ? 'start' : 'stop'} speech recognition`);
 }
 
 async function service(action) {
   if (!['start', 'stop', 'restart', 'enable', 'disable'].includes(action)) throw new Error(`bad action ${action}`);
-  if (action === 'start' || action === 'restart' || action === 'enable') await installService();
-  const res = await systemctl(action, UNIT);
+  const settings = loadSettings();
+  if (!(await serviceState(settings.unit)).installed) {
+    throw new Error(`${settings.unit} is not installed. Set it up with scripts/setup-llama-router.sh.`);
+  }
+  if (action === 'start' || action === 'restart') {
+    writePresets(settings);
+    // The router loads Everyday on start, which is sized around whisper's VRAM.
+    await setWhisper(true);
+  }
+  const res = await systemctl(action, settings.unit);
   if (!res.ok) throw new Error(res.stderr.trim() || `systemctl ${action} failed`);
 }
 
 async function logs(lines = 60) {
-  const res = await run('journalctl', ['--user', '-u', UNIT, '-n', String(lines), '--no-pager', '-o', 'cat']);
+  const res = await run('journalctl', ['--user', '-u', loadSettings().unit, '-n', String(lines), '--no-pager', '-o', 'cat']);
   return res.stdout;
 }
 
@@ -293,7 +324,7 @@ async function gpus() {
 
 async function status() {
   const settings = loadSettings();
-  const [svc, gpuList] = await Promise.all([serviceState(), gpus()]);
+  const [svc, gpuList] = await Promise.all([serviceState(settings.unit), gpus()]);
   let models = [];
   let reachable = false;
   try {
@@ -311,6 +342,7 @@ async function status() {
     reachable,
     profiles,
     activeProfile: active ? active.name : null,
+    modelPresets: settings.modelPresets,
     loaded: loaded.map((m) => m.id),
     gpus: gpuList
   };
@@ -348,6 +380,10 @@ async function switchProfile(profile, onProgress = () => {}) {
       await waitFor(m.id, 'unloaded', 60000, onProgress);
     }
   }
+  // After the unloads, so stopping whisper never races a model still holding VRAM,
+  // and before the load, so --fit sizes the new model around whisper's state.
+  onProgress(target.stopsWhisper ? 'Stopping speech recognition…' : 'Starting speech recognition…');
+  await setWhisper(!target.stopsWhisper);
   const current = models.find((m) => m.id === target.model);
   if (current.status !== 'loaded') {
     onProgress(`Loading ${target.model}…`);
@@ -367,13 +403,10 @@ async function unloadAll() {
 module.exports = {
   PROFILES,
   CONFIG_DIR,
-  PRESETS_FILE,
-  UNIT,
   loadSettings,
   saveSettings,
   listModels,
   writePresets,
-  installService,
   service,
   logs,
   baseUrl,

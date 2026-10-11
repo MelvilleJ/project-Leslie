@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Install the built app for this user (no root): ~/.local/opt/leslie, launcher
-# entries, icons, and two systemd user services that start at login:
-#   leslie-llama.service  llama.cpp router; loads the Everyday model
-#   leslie.service        the LESLIE desktop app
+# entries, icons, and the leslie.service user service that starts the app at
+# login. LESLIE uses the shared llama-router service for its models; this sets
+# it up via scripts/setup-llama-router.sh when it isn't installed yet.
 # Build first with `npm run build:linux` (or run `npm run install:linux`).
 set -euo pipefail
 
@@ -68,23 +68,28 @@ cat > "$UNITS/leslie.service" <<EOF
 [Unit]
 Description=LESLIE desktop companion
 PartOf=graphical-session.target
-After=graphical-session.target leslie-llama.service
-Wants=leslie-llama.service
+After=graphical-session.target llama-router.service
+Wants=llama-router.service
 
 [Service]
 ExecStart=$DEST/leslie
 Restart=on-failure
 RestartSec=3
+# SIGTERM only Electron's main process; it shuts its own helpers down. Signalling
+# the whole cgroup kills the GPU/zygote processes first, and Chromium then aborts
+# with "GPU process isn't usable" (SIGTRAP + core dump) on every stop.
+KillMode=mixed
+TimeoutStopSec=15
 
 [Install]
 WantedBy=graphical-session.target
 EOF
 systemctl --user daemon-reload
-"$BIN/leslie-server" enable
 systemctl --user enable leslie.service
+[ -e "$UNITS/llama-router.service" ] || bash "$ROOT/scripts/setup-llama-router.sh"
 
 echo
 echo "Installed. Both services start at login."
-echo "  start now:      systemctl --user start leslie-llama leslie"
+echo "  start now:      systemctl --user start llama-router leslie"
 echo "  model server:   leslie-server   (or the 'LESLIE Model Server' launcher entry)"
-echo "  logs:           journalctl --user -u leslie -u leslie-llama -f"
+echo "  logs:           journalctl --user -u leslie -u llama-router -f"

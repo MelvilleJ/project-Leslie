@@ -29,7 +29,7 @@ function render(st, message) {
   const svc = st.service;
   lines.push(
     st.reachable
-      ? ` ${c.green('●')} running at ${st.url}${svc.active === 'active' ? c.dim('  (leslie-llama service)') : c.dim('  (started outside LESLIE)')}`
+      ? ` ${c.green('●')} running at ${st.url}${svc.active === 'active' ? c.dim(`  (${svc.unit})`) : c.dim('  (started outside the service)')}`
       : ` ${c.red('○')} stopped`
   );
   lines.push(` ${c.dim('start at login:')} ${svc.enabled ? c.green('yes') : 'no'}`, '');
@@ -102,7 +102,8 @@ async function once(command) {
   switch (command) {
     case 'status': {
       const st = await server.status();
-      console.log(JSON.stringify({ running: st.reachable, url: st.url, profile: st.activeProfile, loaded: st.loaded, service: st.service, gpus: st.gpus }, null, 2));
+      const profiles = st.profiles.map(({ name, model, stopsWhisper }) => ({ name, model, stopsWhisper }));
+      console.log(JSON.stringify({ running: st.reachable, url: st.url, profile: st.activeProfile, loaded: st.loaded, profiles, service: st.service, gpus: st.gpus }, null, 2));
       return;
     }
     case 'everyday':

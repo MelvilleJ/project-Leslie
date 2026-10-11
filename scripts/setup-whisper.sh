@@ -39,7 +39,7 @@ cat > "$UNIT" <<EOF
 Description=LESLIE speech recognition (whisper.cpp, $MODEL)
 # Start before the model server so llama.cpp's --fit sizes the Everyday model
 # around the ~0.9 GB whisper keeps on the RTX 3060.
-Before=leslie-llama.service
+Before=llama-router.service
 
 [Service]
 ExecStart=$SRC/build/bin/whisper-server -m $MODEL_DIR/$MODEL.bin --host 127.0.0.1 --port $PORT --inference-path /v1/audio/transcriptions -l en -t 4 -fa
