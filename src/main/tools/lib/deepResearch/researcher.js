@@ -82,6 +82,10 @@ async function searxngSearch(query, count, timeoutMs, signal) {
       .filter((r) => r && r.url)
       .slice(0, count)
       .map((r) => ({ url: r.url, title: r.title || r.url }));
+    // SearXNG answers 200 with an empty list when its upstream engines are
+    // rate-limited or CAPTCHA'd; surface why instead of a silent "no results".
+    const blocked = (data.unresponsive_engines || []).map(([name, reason]) => `${name} (${reason})`);
+    if (!results.length && blocked.length) return { results, error: `SearXNG engines unavailable: ${blocked.join(', ')}` };
     return { results };
   } catch (err) {
     const msg = err && err.name === 'AbortError' ? `search timed out after ${timeoutMs}ms` : err && err.message ? err.message : String(err);

@@ -3,8 +3,8 @@
 // Keeps the companion on one monitor under Hyprland. Wayland doesn't let a
 // client place itself, so placement goes through hyprctl (Hyprland 0.55+ Lua
 // dispatchers): move there without following, anchor bottom-right, pin so it
-// shows on every workspace of that monitor, and hand focus back if showing
-// the window took it.
+// shows on every workspace of that monitor, strip blur/border/shadow, and hand
+// focus back if showing the window took it.
 
 const { execFile } = require('node:child_process');
 const net = require('node:net');
@@ -40,6 +40,21 @@ async function activeAddress() {
   }
 }
 
+// The companion draws its own panels over a transparent window, so Hyprland's
+// blur, border and shadow would frame empty space around her.
+const UNDECORATED_PROPS = { no_blur: '1', border_size: '0', no_shadow: '1' };
+// Window addresses already stripped; a re-mapped window gets a new address.
+const undecorated = new Set();
+
+async function undecorate(address) {
+  if (undecorated.has(address)) return;
+  const cmds = Object.entries(UNDECORATED_PROPS).map(
+    ([prop, value]) => `dispatch hl.dsp.window.set_prop({ prop = "${prop}", value = "${value}", window = ${sel(address)} })`
+  );
+  await hyprctl(['--batch', cmds.join(' ; ')]);
+  undecorated.add(address);
+}
+
 const PLACE_ATTEMPTS = 12;
 const PLACE_RETRY_MS = 250;
 let generation = 0;
@@ -66,6 +81,7 @@ async function pinToMonitor({ pid, title, monitor, size, previousFocus }) {
   for (let attempt = 0; attempt < PLACE_ATTEMPTS && mine === generation; attempt++) {
     const win = await findWindow(pid, title);
     if (!win) return false;
+    await undecorate(win.address).catch(() => {});
     const { width: w, height: h } = size();
     const x = Math.round(mon.x + mon.width / mon.scale - w - MARGIN);
     const y = Math.round(mon.y + mon.height / mon.scale - h - MARGIN);
