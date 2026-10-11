@@ -384,7 +384,7 @@ document.getElementById('accent-reset').addEventListener('click', () => {
 });
 
 const connStatus = document.getElementById('conn-status');
-// On the pi engine this lists pi's models (every provider pi is logged in to).
+// Lists pi's models (every provider pi is logged in to).
 async function listPiModels() {
   const res = await api.pi('models');
   if (!res.ok) return res;
@@ -398,7 +398,7 @@ async function listPiModels() {
 document.getElementById('model-refresh').addEventListener('click', async () => {
   connStatus.textContent = 'Listing models…';
   connStatus.className = 'status-line muted small';
-  const res = engine === 'pi' ? await listPiModels() : await api.listModels();
+  const res = await listPiModels();
   if (!res.ok) {
     connStatus.textContent = `Couldn't list models: ${res.error}`;
     connStatus.className = 'status-line err small';
@@ -467,9 +467,7 @@ async function openConversation(id) {
   }
   const head = el('div', { class: 'reader-head' },
     el('button', { class: 'btn small', text: '▶ Resume', onclick: () => resumeConv(id) }),
-    engine === 'pi'
-      ? el('button', { class: 'btn small', text: '⧉ Copy path', onclick: () => navigator.clipboard.writeText(id).then(() => toast('Session path copied')) })
-      : null,
+    el('button', { class: 'btn small', text: '⧉ Copy path', onclick: () => navigator.clipboard.writeText(id).then(() => toast('Session path copied')) }),
     el('button', { class: 'btn small danger', text: '🗑 Delete', onclick: () => deleteConv(id) })
   );
   convDetailEl.append(head, el('h3', { text: conv.title, style: 'margin-bottom:12px;color:#f3f1fb' }));
@@ -511,31 +509,9 @@ document.getElementById('conv-new').addEventListener('click', async () => {
   loadConversations();
   toast('New conversation started');
 });
-document.getElementById('conv-clear').addEventListener('click', async () => {
-  await api.clearConversations();
-  selectedConv = null;
-  convDetailEl.innerHTML = '';
-  loadConversations();
-  toast('All conversations deleted');
-});
 api.onConversationsChanged?.(() => { if (activePanel === 'conversations') loadConversations(); });
 
-// --- Engine-dependent labels -------------------------------------------------
-let engine = 'native';
-
-function applyEngine(next) {
-  engine = next;
-  const onPi = engine === 'pi';
-  document.getElementById('conv-heading').textContent = onPi ? 'pi sessions' : 'Past conversations';
-  document.getElementById('conv-hint').classList.toggle('hidden', !onPi);
-  document.getElementById('conv-clear').classList.toggle('hidden', onPi);
-  document.querySelector('.nav-item[data-panel="conversations"]').textContent = onPi ? '🗂 Sessions' : '🗂 Conversations';
-  if (activePanel === 'conversations') loadConversations();
-  if (onPi) listPiModels().catch(() => {});
-}
-
-api.getEngine().then(applyEngine);
-api.onEngine(applyEngine);
+listPiModels().catch(() => {});
 api.onPiEvent((ev) => {
   if (ev.type === 'session' && activePanel === 'conversations') loadConversations();
 });

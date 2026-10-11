@@ -53,12 +53,6 @@ contextBridge.exposeInMainWorld('settingsApi', {
     ipcRenderer.on('settings:show-panel', l);
     return () => ipcRenderer.removeListener('settings:show-panel', l);
   },
-  getEngine: () => ipcRenderer.invoke('engine:get'),
-  onEngine: (cb) => {
-    const l = (_e, engine) => cb(engine);
-    ipcRenderer.on('engine:changed', l);
-    return () => ipcRenderer.removeListener('engine:changed', l);
-  },
   pi: (name, args) => ipcRenderer.invoke('pi:command', { name, args }),
   onPiEvent: (cb) => {
     const l = (_e, ev) => cb(ev || {});
@@ -73,7 +67,6 @@ contextBridge.exposeInMainWorld('settingsApi', {
   getConversation: (id) => ipcRenderer.invoke('conv:get', id),
   resumeConversation: (id) => ipcRenderer.invoke('conv:resume', id),
   deleteConversation: (id) => ipcRenderer.invoke('conv:delete', id),
-  clearConversations: () => ipcRenderer.invoke('conv:clear'),
   newConversation: () => ipcRenderer.invoke('conv:new'),
 
   listMemories: () => ipcRenderer.invoke('memory:list'),

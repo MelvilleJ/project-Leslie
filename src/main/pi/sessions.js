@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { stripReplyTags } = require('../agent/streamTurn');
+const { stripReplyTags } = require('../agent/replyTags');
 
 function readEntries(file) {
   let text;

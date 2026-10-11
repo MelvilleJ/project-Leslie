@@ -7,9 +7,9 @@ const { app } = require('electron');
 const config = require('../config');
 const settings = require('../settings');
 const memory = require('../memory');
-const { createTagRouter, FORMAT_INSTRUCTIONS } = require('../agent/streamTurn');
-const { PLAN_MODE_DIRECTIVE, TASK_MODE_DIRECTIVE } = require('../agent/toolPolicy');
-const { toolDetail } = require('../agent/loop');
+const { createTagRouter, FORMAT_INSTRUCTIONS } = require('../agent/replyTags');
+const { PLAN_MODE_DIRECTIVE, TASK_MODE_DIRECTIVE } = require('../agent/directives');
+const { toolDetail } = require('../agent/toolDetail');
 const { extractMemories } = require('../agent/reflect');
 const { PiRpcClient } = require('./rpcClient');
 const { createBridge } = require('./bridge');
@@ -28,7 +28,6 @@ let clientSignature = '';
 let starting = null;
 let bridge = null;
 let turn = null;
-let pendingContext = [];
 let history = [];
 let turnCount = 0;
 let lastSessionFile = settings.get('piSessionFile', null);
@@ -134,7 +133,7 @@ function signature() {
 
 function friendlyError(reason) {
   if (/ENOENT/.test(reason)) {
-    return `pi was not found ("${config.piCommand}"). Install pi, set the pi command in Settings, or switch the agent engine to LESLIE.`;
+    return `pi was not found ("${config.piCommand}"). Install pi or set the pi command in Settings.`;
   }
   return reason;
 }
@@ -421,8 +420,7 @@ async function runPrompt(c, message, images, onEvent) {
 
 async function sendMessage(text, onEvent, contextText, images) {
   const c = await ensureStarted();
-  const message = [...pendingContext, contextText, text].filter(Boolean).join('\n\n');
-  pendingContext = [];
+  const message = [contextText, text].filter(Boolean).join('\n\n');
 
   const outcome = await runPrompt(c, message, images, onEvent);
 
@@ -500,18 +498,10 @@ async function runBash(command, excludeFromContext, onChunk) {
   }
 }
 
-// pi has no way to add a message without running the model, so the report
-// rides along with the next prompt instead.
-function recordResearch(query, reportText) {
-  const stored = String(reportText || '').trim();
-  if (stored) pendingContext.push(`Earlier in this conversation you produced this deep-research report on "${query}":\n\n${stored}`);
-}
-
 // --- Sessions ---------------------------------------------------------------
 
 function sessionChanged() {
   history = [];
-  pendingContext = [];
   turnCount = 0;
   broadcast({ type: 'session' });
   pushState();
@@ -644,7 +634,6 @@ module.exports = {
   resolveConfirm,
   resume,
   cancel,
-  recordResearch,
   shutdown,
   onUiEvent,
   respondUi,

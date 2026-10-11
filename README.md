@@ -106,7 +106,7 @@ On Hyprland the companion lives on one monitor (`LESLIE_HOME_MONITOR`, default
 its workspaces, and a wake word brings her back there without taking focus.
 Left-click the tray icon or run `leslie --toggle` (bind it to a key) to show/hide her.
 
-## The pi engine (default)
+## The pi engine
 
 LESLIE is a desktop GUI for the [pi](https://pi.dev) agent harness: pi runs the
 agent (sessions, compaction, retries, every provider, skills, prompt templates,
@@ -116,7 +116,6 @@ Install pi and log in to a provider once in a terminal (`pi`, then `/login`).
 ```bash
 # LESLIE_PI_MODEL: blank = pi's default model; 'leslie' = LESLIE_BASE_URL; or provider/model
 # LESLIE_PI_CWD:   where pi runs and stores sessions (default: home folder)
-# LESLIE_ENGINE=native switches back to LESLIE's built-in loop.
 LESLIE_PI_MODEL= LESLIE_PI_CWD=~ npm start
 ```
 

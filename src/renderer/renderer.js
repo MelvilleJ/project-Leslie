@@ -14,9 +14,6 @@ const mentionMenu = document.getElementById('mention-menu');
 const commandMenu = document.getElementById('command-menu');
 const attachmentsEl = document.getElementById('attachments');
 
-// 'pi' when pi drives the agent (Leslie is its GUI); 'native' for the built-in loop.
-let engine = 'native';
-
 let expanded = false;
 
 function setExpanded(on) {
@@ -655,7 +652,7 @@ async function send(text, { followUp = false } = {}) {
   if (streaming) {
     // A task runs outside the chat session, so there's nothing to steer.
     if (mode === 'assistant') systemLine('Wait for this task to finish, or press Esc to stop it.');
-    else if (engine === 'pi') queueMessage(text, followUp);
+    else queueMessage(text, followUp);
     return;
   }
 
@@ -694,60 +691,6 @@ async function send(text, { followUp = false } = {}) {
     if (res && res.aborted) speech.stop();
     else speech.finish(res && res.reply);
   }
-}
-
-// --- Dedicated deep-research flow -------------------------------------------
-// Runs the researcher directly (main process), bypassing the agent loop and its
-// tool schemas entirely, so the full cited report renders straight to the
-// transcript regardless of the chat model's context window. Driven by a live
-// synapse fed from research:progress events.
-let activeResearchSynapse = null;
-
-window.leslie.onResearchProgress((e) => {
-  if (activeResearchSynapse) driveSynapse(activeResearchSynapse, e);
-});
-
-async function runResearchFlow(query) {
-  query = query.trim();
-  if (!query || streaming) return;
-
-  setExpanded(true);
-  appendUser(`🔬 ${query}`);
-  streaming = true;
-  setSendMode(true);
-  setFlag('thinking', true);
-  setStatus('Researching…');
-  beginAssistant();
-
-  const box = document.createElement('div');
-  box.className = 'tool-card-research';
-  activeResearchSynapse = window.createResearchSynapse
-    ? window.createResearchSynapse(box, { query, compact: true })
-    : null;
-  current.tools.appendChild(box);
-  scrollToBottom();
-
-  let res;
-  try {
-    res = await window.leslie.runResearch(query);
-  } catch (err) {
-    res = { error: err && err.message ? err.message : String(err) };
-  }
-  streaming = false;
-  setSendMode(false);
-  endTurn();
-  setStatus('');
-
-  if (res && res.error) {
-    if (activeResearchSynapse) activeResearchSynapse.fail(res.error);
-    finishAssistant('');
-    systemLine(`⚠ research: ${res.error}`, 'error');
-  } else {
-    if (activeResearchSynapse) res.aborted ? activeResearchSynapse.fail('interrupted') : activeResearchSynapse.complete();
-    finishAssistant(res && res.report);
-    if (res && res.aborted) systemLine('⏹ Research interrupted.');
-  }
-  activeResearchSynapse = null;
 }
 
 const MODES = ['chat', 'plan', 'agent', 'assistant'];
@@ -852,13 +795,11 @@ const COMMANDS = {
   research: (arg) => {
     const q = (arg || '').trim();
     if (!q) systemLine('Usage: /research <question> — deep, multi-source research with a cited report.');
-    // On pi the deep_research tool runs on pi's model, inside the session.
-    else if (engine === 'pi') send(`Use the deep_research tool to research: ${q}`);
-    else runResearchFlow(q);
+    else send(`Use the deep_research tool to research: ${q}`);
   },
   help: () => {
     const names = visibleCommands().map((c) => `/${c.name}`);
-    systemLine(`Commands: ${names.join(', ')}${engine === 'pi' ? ' · !cmd runs a shell command (!!cmd keeps it private)' : ''}`);
+    systemLine(`Commands: ${names.join(', ')} · !cmd runs a shell command (!!cmd keeps it private)`);
   }
 };
 
@@ -866,11 +807,11 @@ function runCommand(raw) {
   const parts = raw.slice(1).trim().split(/\s+/);
   const name = parts[0].toLowerCase();
   const arg = parts.slice(1).join(' ');
-  if (engine === 'pi' && PI_COMMANDS[name]) return PI_COMMANDS[name](arg);
+  if (PI_COMMANDS[name]) return PI_COMMANDS[name](arg);
   const command = COMMANDS[name];
   if (command) return command(arg);
   // Prompt templates, skills and extension commands are expanded by pi itself.
-  if (engine === 'pi' && piCommands.some((c) => c.name === parts[0])) return send(raw);
+  if (piCommands.some((c) => c.name === parts[0])) return send(raw);
   systemLine(`Unknown command: /${parts[0]}`, 'error');
 }
 
@@ -1035,7 +976,6 @@ let commandIndex = 0;
 let piCommands = [];
 
 function visibleCommands() {
-  if (engine !== 'pi') return COMMAND_META;
   const extra = piCommands.map((c) => ({
     name: c.name,
     usage: `/${c.name}`,
@@ -1198,7 +1138,7 @@ function submit(opts = {}) {
   autosize();
   closeMention();
   closeCommandMenu();
-  if (engine === 'pi' && text.startsWith('!')) runBash(text);
+  if (text.startsWith('!')) runBash(text);
   else if (text.startsWith('/')) runCommand(text);
   else send(text, opts);
 }
@@ -1211,7 +1151,6 @@ function autosize() {
 input.addEventListener('input', autosize);
 
 const PLACEHOLDER = {
-  idle: 'Say something… (@ files, /help)',
   piIdle: 'Message LESLIE… (@ files, / commands, ! shell)',
   piBusy: 'Steer… (Alt+Enter: queue for after)',
   task: 'Give LESLIE a task… (nothing is remembered)',
@@ -1223,10 +1162,10 @@ function setSendMode(busy) {
   sendBtn.innerHTML = `<i class="fa-solid ${busy ? 'fa-stop' : 'fa-arrow-up'}" aria-hidden="true"></i>`;
   sendBtn.title = busy ? 'Stop' : 'Send';
   if (mode === 'assistant') input.placeholder = busy ? PLACEHOLDER.taskBusy : PLACEHOLDER.task;
-  else input.placeholder = engine !== 'pi' ? PLACEHOLDER.idle : busy ? PLACEHOLDER.piBusy : PLACEHOLDER.piIdle;
+  else input.placeholder = busy ? PLACEHOLDER.piBusy : PLACEHOLDER.piIdle;
 }
 
-// --- Pasted images (sent with the next prompt on the pi engine) -------------
+// --- Pasted images (sent with the next prompt) ------------------------------
 let pendingImages = [];
 
 function takeImages() {
@@ -1260,10 +1199,6 @@ input.addEventListener('paste', (event) => {
   const files = [...(event.clipboardData ? event.clipboardData.files : [])].filter((f) => f.type.startsWith('image/'));
   if (!files.length) return;
   event.preventDefault();
-  if (engine !== 'pi') {
-    systemLine('Image input needs the pi engine (Settings → Model & Connection).');
-    return;
-  }
   for (const file of files) {
     const reader = new FileReader();
     reader.onload = () => {
@@ -1310,7 +1245,7 @@ async function runBash(raw) {
 // Stop the run. On pi, queued messages would otherwise run after the abort, so
 // pull them back into the editor first (pi's own Esc behaviour).
 async function stopRun() {
-  if (engine === 'pi' && queuedBubbles.length) {
+  if (queuedBubbles.length) {
     try {
       const { steering = [], followUp = [] } = (await pi('clearQueue')) || {};
       const restored = [...steering, ...followUp].join('\n\n');
@@ -1388,7 +1323,7 @@ window.leslie.onVoiceStatus(({ state, message, progress }) => {
   }
 });
 
-// --- pi engine: footer, pickers, dialogs, history ---------------------------
+// --- pi: footer, pickers, dialogs, history ----------------------------------
 
 const piBar = document.getElementById('pi-bar');
 const piModelChip = document.getElementById('pi-model');
@@ -1753,8 +1688,7 @@ async function reloadTranscript() {
 // On pi the new session also triggers a transcript reload, so redraw from pi
 // before adding the notice rather than having the reload wipe it.
 window.leslie.onIdleReset(async (minutes) => {
-  if (engine === 'pi') await reloadTranscript();
-  else clearTranscript();
+  await reloadTranscript();
   systemLine(`Started a fresh chat after ${minutes} minutes idle. The last one is in Settings, ready to resume.`);
 });
 
@@ -1783,7 +1717,6 @@ window.leslie.server.onEvent((ev) => {
 
 let compactionLine = null;
 window.leslie.onPiEvent((ev) => {
-  if (engine !== 'pi') return;
   switch (ev.type) {
     case 'state':
       updatePiBar(ev.state);
@@ -1832,14 +1765,7 @@ window.leslie.onPiEvent((ev) => {
   }
 });
 
-async function applyEngine(next) {
-  engine = next === 'pi' ? 'pi' : 'native';
-  piBar.classList.toggle('hidden', engine !== 'pi');
-  setSendMode(streaming);
-  closePicker();
-  piStatuses.clear();
-  renderPiStatus();
-  if (engine !== 'pi') return;
+async function startPi() {
   piModelChip.textContent = 'starting pi…';
   try {
     updatePiBar(await pi('state'));
@@ -1851,12 +1777,6 @@ async function applyEngine(next) {
   await reloadTranscript();
   refreshPiCommands();
 }
-
-window.leslie.onEngine((next) => {
-  clearTranscript();
-  systemLine(next === 'pi' ? 'Switched to the pi engine.' : 'Switched to the built-in engine.');
-  applyEngine(next);
-});
 
 // --- Screen recording indicator ---------------------------------------------
 const recIndicator = document.getElementById('rec-indicator');
@@ -1894,12 +1814,8 @@ window.leslie.onTheme(applyAccent);
 
 window.addEventListener('DOMContentLoaded', async () => {
   input.focus();
-  const initial = await window.leslie.getEngine();
-  if (initial === 'pi') applyEngine('pi');
-  else {
-    systemLine(GREETING);
-    applyEngine('native');
-  }
+  setSendMode(streaming);
+  startPi();
   window.leslie.getMode().then(reflectMode);
   window.leslie.getAutoApprove().then(reflectAutoApprove);
   window.leslie.getAccent().then(applyAccent);

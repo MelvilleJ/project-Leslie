@@ -22,7 +22,7 @@
 
   <div id="shell">
     <nav id="nav">
-      <button class="nav-item active" data-panel="conversations" type="button">🗂 Conversations</button>
+      <button class="nav-item active" data-panel="conversations" type="button">🗂 Sessions</button>
       <button class="nav-item" data-panel="server" type="button">🖥 Models &amp; GPUs</button>
       <button class="nav-item" data-panel="system" type="button">📊 System</button>
       <button class="nav-item" data-panel="connection" type="button">🔌 Model &amp; Connection</button>
@@ -39,13 +39,12 @@
     <main id="main">
       <section class="panel active" data-panel="conversations">
         <div class="panel-head">
-          <h2 id="conv-heading">Past conversations</h2>
+          <h2 id="conv-heading">pi sessions</h2>
           <div class="panel-actions">
             <button id="conv-new" class="btn" type="button">＋ New</button>
-            <button id="conv-clear" class="btn danger" type="button">Delete all</button>
           </div>
         </div>
-        <p id="conv-hint" class="muted small hidden" style="margin-bottom:10px">
+        <p id="conv-hint" class="muted small" style="margin-bottom:10px">
           These are pi’s sessions for LESLIE’s working folder — the same ones <code>pi --resume</code> shows.
           Deleted sessions go to the trash.
         </p>

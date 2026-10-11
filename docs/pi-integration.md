@@ -6,7 +6,7 @@ Rather than port it into LESLIE's ~3.6k-line loop (a permanent fork to keep in
 sync by hand), LESLIE drives pi as its **engine** and becomes its **GUI**. Every
 pi feature is then available and stays current with `pi update`.
 
-The native loop stays; the engine is a setting.
+pi is the only engine; LESLIE's own agent loop has been removed.
 
 ---
 
@@ -43,8 +43,7 @@ in-process SDK.
 ## 2. What's built (phase 1)
 
 ```
-Renderer ──IPC──▶ main.js ──▶ agent.js ──┬─▶ agent/index.js      (engine: native)
-                                         └─▶ pi/backend.js       (engine: pi)
+Renderer ──IPC──▶ main.js ──▶ agent.js ──▶ pi/backend.js
                                                  │  JSONL stdin/stdout
                                                  ▼
                                            pi --mode rpc --extension src/pi-extension/leslie.ts
@@ -55,9 +54,9 @@ Renderer ──IPC──▶ main.js ──▶ agent.js ──┬─▶ agent/ind
 
 | File | Role |
 |---|---|
-| `src/main/agent.js` | Picks the engine per call from `config.engine` |
+| `src/main/agent.js` | Thin facade over the pi backend (task mode → `runTask`) |
 | `src/main/pi/rpcClient.js` | Spawns pi, LF-only JSONL framing (not `readline` — it splits on U+2028), id-correlated commands, events, extension-UI requests |
-| `src/main/pi/backend.js` | Same interface as the native agent. Maps pi events → LESLIE's `thinking`/`summary`/`details`/`tool`/`confirm` events, links LESLIE conversations to pi session files, restarts pi when engine settings change |
+| `src/main/pi/backend.js` | Maps pi events → LESLIE's `thinking`/`summary`/`details`/`tool`/`confirm` events, links LESLIE conversations to pi session files, restarts pi when its settings change |
 | `src/main/pi/bridge.js` | Unix socket / named pipe the extension calls back on, so tools run in the Electron main process |
 | `src/main/pi/sessions.js` | Lists and reads pi's session files for the Sessions panel (active branch only) |
 | `src/main/pi/policy.js` | LESLIE mode → pi tool set (below) and the bridged tool catalog |
@@ -104,9 +103,9 @@ reachable from the companion panel:
 | `pi --continue` | LESLIE reopens the last session on launch | `--session` |
 | Images | Paste into the editor | `prompt.images` |
 
-Taken away on the pi engine: LESLIE's separate conversation store (pi's
-sessions replace it), the native-only settings (temperature, history length,
-max tool calls), and the direct `/research` pipeline (it now asks pi to use the
+Removed with the native loop: LESLIE's separate conversation store (pi's
+sessions replace it), its settings (temperature, max tool calls, tool RAG, loop
+guards), and the direct `/research` pipeline (it now asks pi to use the
 `deep_research` tool, so it runs on pi's model inside the session).
 
 ### Still open

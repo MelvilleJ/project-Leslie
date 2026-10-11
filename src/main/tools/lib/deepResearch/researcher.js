@@ -8,7 +8,7 @@
 const config = require('../../../config');
 const { readPage } = require('../webContent');
 const { llmCall, parseJsonArray, parseJsonObject, estimateTokens, charsForTokens } = require('../llmCall');
-const { wrapUntrusted } = require('../../../agent/toolPolicy');
+const { wrapUntrusted } = require('../untrusted');
 const prompts = require('./prompts');
 
 const LOW_QUALITY_RE = /^(n\/a|none|nothing relevant|no relevant|not found|not applicable)/i;

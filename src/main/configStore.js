@@ -5,20 +5,11 @@ const settings = require('./settings');
 const { VOICES } = require('./tts/voices');
 
 const SCHEMA = [
-  { key: 'engine', type: 'select', group: 'Connection', label: 'Agent engine',
-    options: [
-      { value: 'pi', label: 'pi coding agent' },
-      { value: 'native', label: 'LESLIE (built-in)' }
-    ],
-    help: 'pi adds sessions, compaction, retries, skills, extensions and every pi provider. Needs pi installed.' },
   { key: 'piModel', type: 'string', group: 'Connection', label: 'pi model',
-    dependsOn: { key: 'engine', value: 'pi' },
     help: "Blank = pi's default model. 'leslie' = the server below. Or provider/model, e.g. llama.cpp/Qwen3." },
   { key: 'piCommand', type: 'string', group: 'Connection', label: 'pi command',
-    dependsOn: { key: 'engine', value: 'pi' },
     help: 'Path to the pi executable if it is not on PATH.' },
   { key: 'piCwd', type: 'string', group: 'Connection', label: 'pi working folder',
-    dependsOn: { key: 'engine', value: 'pi' },
     help: 'Where pi runs and stores sessions. Blank = your home folder.' },
 
   { key: 'serverManaged', type: 'boolean', group: 'Connection', label: 'LESLIE manages the model server',
@@ -34,11 +25,6 @@ const SCHEMA = [
 
   { key: 'systemPrompt', type: 'text', group: 'Generation', label: 'System prompt',
     help: "LESLIE's persona. Kept short — replies show in a small bubble." },
-  { key: 'temperature', type: 'number', group: 'Generation', label: 'Temperature',
-    min: 0, max: 2, step: 0.05, dependsOn: { key: 'engine', value: 'native' } },
-  { key: 'historyLimit', type: 'number', group: 'Generation', label: 'History messages kept',
-    min: 0, max: 200, step: 2, help: 'How many past messages stay in context.',
-    dependsOn: { key: 'engine', value: 'native' } },
 
   { key: 'osTarget', type: 'select', group: 'Behaviour', label: 'Operating system',
     options: [
@@ -59,8 +45,6 @@ const SCHEMA = [
     help: 'Hyprland monitor LESLIE always appears on, pinned across its workspaces (e.g. HDMI-A-1). Blank = wherever she opens.' },
   { key: 'toolsEnabled', type: 'boolean', group: 'Behaviour', label: 'Enable tools',
     help: 'Web search, deep search, open URL, etc. Needs a tool-capable model.' },
-  { key: 'maxToolCalls', type: 'number', group: 'Behaviour', label: 'Max tool calls per message',
-    min: 0, max: 30, step: 1, dependsOn: { key: 'engine', value: 'native' } },
   { key: 'detailedResponses', type: 'boolean', group: 'Behaviour', label: 'Detailed answers (side window)' },
   { key: 'detailSentenceThreshold', type: 'number', group: 'Behaviour',
     label: 'Sentences before moving to details', min: 1, max: 20, step: 1 },

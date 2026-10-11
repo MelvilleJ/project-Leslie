@@ -17,14 +17,13 @@ const config = require('./config');
 const settings = require('./settings');
 const memory = require('./memory');
 const configStore = require('./configStore');
-const conversations = require('./conversations');
 const sysmon = require('./sysmon');
 const animations = require('./animations');
 const aseprite = require('./aseprite');
 const wardrobe = require('./wardrobe');
 const tts = require('./tts');
 const shortcuts = require('./shortcuts');
-const tools = require('./tools');
+const policy = require('./pi/policy');
 const permissions = require('./permissions');
 const idleReset = require('./idleReset');
 const { parseSpriteCss } = require('./spriteGrid');
@@ -512,16 +511,13 @@ function toCompanion(channel, payload) {
   }
 }
 
-function onEngineChanged() {
+function forwardPiEvents() {
   const pi = agent.pi();
-  if (pi) pi.onUiEvent((ev) => {
+  pi.onUiEvent((ev) => {
     if (ev.type === 'ui') return askPiDialog(pi, ev.request);
     toCompanion('pi:event', ev);
     toSettings('pi:event', ev);
   });
-  else agent.shutdown();
-  toCompanion('engine:changed', config.engine);
-  toSettings('engine:changed', config.engine);
 }
 
 function askPiDialog(pi, req) {
@@ -655,11 +651,12 @@ ipcMain.handle('agent:message', async (event, payload) => {
 async function runShortcut(shortcut) {
   const ctx = { setMode: applyMode, openUrl: (url) => shell.openExternal(url) };
   try {
-    const result = await tools.run(shortcut.tool, shortcut.args, ctx);
+    const tool = policy.bridgedTool(shortcut.tool);
+    if (!tool) return { error: `"${shortcut.phrases[0]}" failed: ${shortcut.tool} isn't available in this mode` };
+    const result = await tool.run(shortcut.args || {}, ctx);
     return { reply: shortcut.reply || shortcuts.describe(result) };
   } catch (err) {
-    const why = /Unknown tool/.test(err.message) ? `${shortcut.tool} isn't available in this mode` : err.message;
-    return { error: `"${shortcut.phrases[0]}" failed: ${why}` };
+    return { error: `"${shortcut.phrases[0]}" failed: ${err.message}` };
   }
 }
 
@@ -680,7 +677,6 @@ async function switchProfileCommand(profile) {
 ipcMain.on('agent:cancel', () => {
   permissions.declineAll('leslie');
   agent.cancel();
-  if (researchAbort) researchAbort.abort();
 });
 
 ipcMain.handle('agent:reset', () => {
@@ -695,47 +691,9 @@ idleReset.init(async () => {
   toCompanion('agent:idle-reset', config.idleResetMinutes);
 });
 
-// Deep-research bypasses the agent loop to avoid context-window saturation.
-const { research: runResearch } = require('./tools/lib/deepResearch/researcher');
-const { formatReport: formatResearch } = require('./tools/lib/deepResearch/report');
-
-let researchAbort = null;
-
-ipcMain.handle('research:run', async (event, query) => {
-  const sender = event.sender;
-  const q = typeof query === 'string' ? query.trim() : '';
-  if (!q) return { error: 'empty query' };
-  idleReset.userInput();
-  idleReset.turnStarted();
-  await contextWindow.refresh();
-  const controller = new AbortController();
-  researchAbort = controller;
-  try {
-    const out = await runResearch(q, {
-      signal: controller.signal,
-      emit: (e) => {
-        if (!sender.isDestroyed()) sender.send('research:progress', e);
-      }
-    });
-    const report = formatResearch(q, out);
-    // Put the finished report into the agent's history so follow-up chat turns
-    // ("make a document from this") can see it — the research flow otherwise
-    // bypasses the agent loop entirely.
-    if (!controller.signal.aborted) agent.recordResearch(q, report);
-    return { report, aborted: controller.signal.aborted };
-  } catch (err) {
-    return { error: err && err.message ? err.message : String(err) };
-  } finally {
-    if (researchAbort === controller) researchAbort = null;
-    idleReset.turnEnded();
-  }
-});
-
 ipcMain.handle('agent:get-mode', () => currentMode());
 ipcMain.handle('permissions:get-auto', () => config.autoApprove);
 ipcMain.handle('permissions:set-auto', (_event, on) => setAutoApprove(on));
-
-ipcMain.handle('engine:get', () => config.engine);
 
 screenRecord.onChange((state) => {
   toCompanion('recording:state', state);
@@ -768,15 +726,9 @@ modelServer.onEvent((ev) => {
   toSettings('server:event', ev);
 });
 
-function requirePi() {
-  const pi = agent.pi();
-  if (!pi) throw new Error('The pi engine is not active.');
-  return pi;
-}
-
 ipcMain.handle('pi:command', async (_event, { name, args } = {}) => {
   try {
-    return { ok: true, data: await requirePi().command(name, args) };
+    return { ok: true, data: await agent.pi().command(name, args) };
   } catch (err) {
     return { ok: false, error: err && err.message ? err.message : String(err) };
   }
@@ -787,7 +739,7 @@ ipcMain.handle('pi:bash', async (event, { command, excludeFromContext } = {}) =>
   idleReset.userInput();
   idleReset.turnStarted();
   try {
-    const data = await requirePi().runBash(String(command || ''), excludeFromContext, (delta) => {
+    const data = await agent.pi().runBash(String(command || ''), excludeFromContext, (delta) => {
       if (!sender.isDestroyed()) sender.send('pi:bash-chunk', delta);
     });
     return { ok: true, data };
@@ -811,7 +763,6 @@ ipcMain.handle('settings:set', (_event, { key, value } = {}) => {
   const res = configStore.set(key, value);
   if (res.ok) {
     if (['baseURL', 'model', 'apiKey'].includes(key)) contextWindow.refresh({ force: true });
-    if (key === 'engine') onEngineChanged();
     if (configStore.VOICE_KEYS.includes(key)) reinitVoice();
     if (key === 'learningMode' && tray) tray.setContextMenu(buildTrayMenu());
     if (key === 'autoApprove') autoApproveChanged(res.value);
@@ -830,7 +781,7 @@ ipcMain.on('tts:cancel', () => tts.cancel());
 // Her own voice would otherwise be transcribed (and could say her wake word).
 ipcMain.on('tts:playing', (_event, playing) => controlVoice('speaking', Boolean(playing)));
 
-ipcMain.handle('shortcuts:get', () => ({ shortcuts: shortcuts.list(), tools: tools.catalog() }));
+ipcMain.handle('shortcuts:get', () => ({ shortcuts: shortcuts.list(), tools: policy.bridgedSpecs() }));
 ipcMain.handle('shortcuts:save', (_event, list) => {
   try {
     return { ok: true, shortcuts: shortcuts.save(list) };
@@ -867,27 +818,18 @@ ipcMain.handle('models:test', async () => {
   }
 });
 
-// On the pi engine the conversation list is pi's own session store, shared
-// with the pi terminal UI.
-ipcMain.handle('conv:list', () => (agent.pi() ? agent.pi().listSessions() : conversations.list()));
-ipcMain.handle('conv:get', (_event, id) => (agent.pi() ? agent.pi().getSession(id) : conversations.get(id)));
+// The conversation list is pi's own session store, shared with the pi terminal UI.
+ipcMain.handle('conv:list', () => agent.pi().listSessions());
+ipcMain.handle('conv:get', (_event, id) => agent.pi().getSession(id));
 ipcMain.handle('conv:resume', (_event, id) => {
   const ok = agent.resume(id);
   if (ok) idleReset.userInput();
   return { ok };
 });
 ipcMain.handle('conv:delete', async (_event, id) => {
-  if (!agent.pi()) return { ok: conversations.remove(id) };
   const file = await agent.pi().sessionFileFor(id);
   if (!file) return { ok: false, error: 'Only saved, inactive sessions can be deleted.' };
   await shell.trashItem(file);
-  return { ok: true };
-});
-ipcMain.handle('conv:clear', () => {
-  if (agent.pi()) return { ok: false, error: 'Delete pi sessions one at a time.' };
-  conversations.clear();
-  agent.reset();
-  idleReset.cleared();
   return { ok: true };
 });
 ipcMain.handle('conv:new', () => {
@@ -1107,7 +1049,7 @@ app.whenReady().then(() => {
   configStore.applyPersisted();
   contextWindow.refresh();
   permissions.init({ icon: APP_ICON });
-  onEngineChanged();
+  forwardPiEvents();
   modelServer.startup();
 
   createWindow();

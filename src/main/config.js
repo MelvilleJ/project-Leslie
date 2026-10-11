@@ -39,9 +39,6 @@
 const env = process.env;
 
 module.exports = {
-  // 'pi' drives the pi coding agent (`pi --mode rpc`) with Leslie as its GUI;
-  // 'native' runs Leslie's built-in agent loop.
-  engine: env.LESLIE_ENGINE === 'native' ? 'native' : 'pi',
   piCommand: env.LESLIE_PI_COMMAND || 'pi',
   // Blank uses pi's own default model; 'leslie' uses the server configured below.
   piModel: env.LESLIE_PI_MODEL || '',
@@ -69,21 +66,10 @@ module.exports = {
     env.LESLIE_SYSTEM_PROMPT ||
     'You are LESLIE, a friendly desktop companion. Reply in a warm, concise, conversational way - usually one or two short sentences.',
 
-  temperature: Number(env.LESLIE_TEMPERATURE ?? 0.7),
-
   historyLimit: Number(env.LESLIE_HISTORY_LIMIT ?? 20),
 
   toolsEnabled: env.LESLIE_TOOLS !== '0',
-  maxToolCalls: Number(env.LESLIE_MAX_TOOL_CALLS ?? 5),
 
-  llmMaxRetries: Number(env.LESLIE_LLM_MAX_RETRIES ?? 2),
-  llmRetryDelayMs: Number(env.LESLIE_LLM_RETRY_DELAY_MS ?? 600),
-
-  permissionAsk: env.LESLIE_PERMISSION_ASK
-    ? env.LESLIE_PERMISSION_ASK.split(',').map((s) => s.trim()).filter(Boolean)
-    : [],
-
-  fsWriteEnabled: env.LESLIE_FS_WRITE === '1',
   fsWriteRoots: (env.LESLIE_FS_WRITE_ROOTS
     ? env.LESLIE_FS_WRITE_ROOTS.split(',').map((s) => s.trim()).filter(Boolean)
     : [env.LESLIE_DOCS_DIR || require('node:path').join(require('node:os').homedir(), 'Documents')]),
@@ -103,15 +89,6 @@ module.exports = {
 
   // Minutes without a message from the user before the chat starts fresh; 0 = never.
   idleResetMinutes: Number(env.LESLIE_IDLE_RESET_MINUTES ?? 30),
-
-  toolRag: env.LESLIE_TOOL_RAG !== '0',
-  toolRagEmbeddings: env.LESLIE_TOOL_RAG_EMBEDDINGS === '1',
-  toolRagTopK: Number(env.LESLIE_TOOL_RAG_TOPK ?? 4),
-  toolRagModel: env.LESLIE_TOOL_RAG_MODEL || 'Xenova/all-MiniLM-L6-v2',
-
-  loopStuckRounds: Number(env.LESLIE_LOOP_STUCK_ROUNDS ?? 4),
-  loopRunawayLimit: Number(env.LESLIE_LOOP_RUNAWAY_LIMIT ?? 15),
-  maxIntentNudges: Number(env.LESLIE_MAX_INTENT_NUDGES ?? 2),
 
   searxngUrl: env.LESLIE_SEARXNG_URL || 'http://192.168.100.226:8080',
   searchResults: Number(env.LESLIE_SEARCH_RESULTS ?? 5),

@@ -22,9 +22,8 @@ async function useModel(model) {
     config.serverModel = model;
   }
   await contextWindow.refresh({ force: true });
-  const pi = agent.pi();
-  if (!pi || !model || config.piModel === 'leslie') return;
-  await pi.command('useModel', { provider: 'llama.cpp', id: model });
+  if (!model || config.piModel === 'leslie') return;
+  await agent.pi().command('useModel', { provider: 'llama.cpp', id: model });
 }
 
 async function status() {

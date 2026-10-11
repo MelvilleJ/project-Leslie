@@ -13,12 +13,6 @@ contextBridge.exposeInMainWorld('leslie', {
     ipcRenderer.on('recording:state', l);
     return () => ipcRenderer.removeListener('recording:state', l);
   },
-  getEngine: () => ipcRenderer.invoke('engine:get'),
-  onEngine: (cb) => {
-    const l = (_e, engine) => cb(engine);
-    ipcRenderer.on('engine:changed', l);
-    return () => ipcRenderer.removeListener('engine:changed', l);
-  },
   /** Run a pi backend command (model, thinking, compact, fork, …). Resolves { ok, data | error }. */
   pi: (name, args) => ipcRenderer.invoke('pi:command', { name, args }),
   piBash: (command, excludeFromContext) => ipcRenderer.invoke('pi:bash', { command, excludeFromContext }),
@@ -62,12 +56,6 @@ contextBridge.exposeInMainWorld('leslie', {
     return () => ipcRenderer.removeListener('agent:idle-reset', listener);
   },
   cancel: () => ipcRenderer.send('agent:cancel'),
-  runResearch: (query) => ipcRenderer.invoke('research:run', query),
-  onResearchProgress: (cb) => {
-    const l = (_e, e) => cb(e || {});
-    ipcRenderer.on('research:progress', l);
-    return () => ipcRenderer.removeListener('research:progress', l);
-  },
   getAutoApprove: () => ipcRenderer.invoke('permissions:get-auto'),
   setAutoApprove: (on) => ipcRenderer.invoke('permissions:set-auto', on),
   onAutoApprove: (callback) => {
