@@ -43,7 +43,7 @@ Comment=Desktop AI companion (pi agent GUI)
 Exec=$DEST/leslie
 Icon=leslie
 Categories=Utility;
-StartupWMClass=LESLIE
+StartupWMClass=project-leslie
 EOF
 cat > "$APPS/leslie-server.desktop" <<EOF
 [Desktop Entry]
