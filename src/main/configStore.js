@@ -71,6 +71,28 @@ const SCHEMA = [
   { key: 'wakeWord', type: 'string', group: 'Voice', label: 'Wake word',
     help: 'Matching is fuzzy and keys on the last word.' },
 
+  { key: 'cameraEnabled', type: 'boolean', group: 'Camera', label: 'Use the camera',
+    help: 'Notice who is at the desk. Needs the leslie-vision service (scripts/setup-vision.sh). Off releases the camera.' },
+  { key: 'cameraDevice', type: 'select', group: 'Camera', label: 'Camera', optionsFrom: 'camera-devices',
+    help: 'Picked by its USB id, so it survives being plugged into another port.' },
+  { key: 'cameraServerUrl', type: 'string', group: 'Camera', label: 'Vision service URL' },
+  { key: 'cameraArriveSec', type: 'number', group: 'Camera', label: 'Seconds in view before arriving',
+    min: 1, max: 30, step: 1, help: 'Takes effect after restarting LESLIE.' },
+  { key: 'cameraLeaveSec', type: 'number', group: 'Camera', label: 'Seconds out of view before leaving',
+    min: 15, max: 1800, step: 15, help: 'Takes effect after restarting LESLIE.' },
+  { key: 'cameraGreetAfterMin', type: 'number', group: 'Camera', label: 'Greet after being away (minutes)',
+    min: 1, max: 240, step: 1 },
+  { key: 'cameraMatchThreshold', type: 'number', group: 'Camera', label: 'Recognition strictness',
+    min: 0.25, max: 0.7, step: 0.01,
+    help: 'Higher = fewer false matches but more "unrecognised" moments. 0.40 suits most rooms.' },
+  { key: 'cameraOwnerGating', type: 'boolean', group: 'Camera', label: 'Guest mode when the owner is away',
+    help: 'While someone other than the owner is at the desk: no commands, file access, installs or memories, and briefings wait for the owner.' },
+  { key: 'cameraGestures', type: 'boolean', group: 'Camera', label: 'Hand gestures',
+    help: 'Hold up an open palm to make her listen, put a finger to your lips to stop her talking, point at something and ask "what is this?".' },
+  { key: 'cameraAwayPauseMedia', type: 'boolean', group: 'Camera', label: 'Pause media when nobody is here' },
+  { key: 'cameraAwayMuteVoice', type: 'boolean', group: 'Camera', label: 'Stop listening when nobody is here',
+    help: 'Off keeps the wake word working from across the room.' },
+
   { key: 'ttsEnabled', type: 'boolean', group: 'Speech', label: 'Speak replies',
     help: 'Reads replies aloud with Kokoro-82M on the CPU. Say "mute" / "unmute" to toggle.' },
   { key: 'ttsVoice', type: 'select', group: 'Speech', label: 'Voice',
@@ -83,6 +105,7 @@ const SCHEMA = [
 const BY_KEY = new Map(SCHEMA.map((f) => [f.key, f]));
 
 const VOICE_KEYS = SCHEMA.filter((f) => f.group === 'Voice').map((f) => f.key);
+const CAMERA_KEYS = SCHEMA.filter((f) => f.group === 'Camera').map((f) => f.key);
 
 function coerce(field, value) {
   switch (field.type) {
@@ -96,6 +119,7 @@ function coerce(field, value) {
     case 'boolean':
       return Boolean(value);
     case 'select': {
+      if (field.optionsFrom) return String(value ?? '');
       const opts = (field.options || []).map((o) => o.value);
       const s = String(value ?? '');
       return opts.length && !opts.includes(s) ? opts[0] : s;
@@ -132,4 +156,4 @@ function applyPersisted() {
   }
 }
 
-module.exports = { schema, snapshot, set, applyPersisted, VOICE_KEYS };
+module.exports = { schema, snapshot, set, applyPersisted, VOICE_KEYS, CAMERA_KEYS };

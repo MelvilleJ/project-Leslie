@@ -39,6 +39,8 @@ function showPanel(name) {
   else stopServerPanel();
   if (name === 'conversations') loadConversations();
   if (name === 'memory') loadMemories();
+  if (name === 'camera') startCameraPanel();
+  else stopCameraPanel();
   clearPreviewTimers(); // stop sprite preview loops from the panel being left
   if (name === 'animations') loadAnimations();
   if (name === 'wardrobe') loadWardrobe();
@@ -63,7 +65,8 @@ const GROUP_TO_CONTAINER = {
   Generation: 'form-generation',
   Behaviour: 'form-behaviour',
   Voice: 'form-voice',
-  Speech: 'form-speech'
+  Speech: 'form-speech',
+  Camera: 'form-camera'
 };
 
 async function buildForms() {
@@ -134,6 +137,18 @@ function renderField(field, value) {
     input.checked = Boolean(value);
     input.addEventListener('change', () => save(field.key, input.checked, field.label));
     control.append(el('label', { class: 'switch' }, input, el('span', { class: 'slider' })));
+  } else if (field.type === 'select' && field.optionsFrom === 'camera-devices') {
+    const sel = el('select');
+    sel.append(el('option', { value: value ?? '', text: value || 'First camera found' }));
+    api.cameraDevices().then((devices) => {
+      sel.innerHTML = '';
+      const known = devices.some((d) => d.path === value);
+      if (value && !known) sel.append(el('option', { value, text: `${value} (not connected)` }));
+      for (const d of devices) sel.append(el('option', { value: d.path, text: `${d.name} (${d.node})` }));
+      sel.value = value || devices[0]?.path || '';
+    });
+    sel.addEventListener('change', () => save(field.key, sel.value, field.label));
+    control.append(sel);
   } else if (field.type === 'select') {
     const sel = el('select');
     for (const opt of (field.options || [])) {
@@ -176,7 +191,7 @@ function renderField(field, value) {
 
 api.onConfigChanged?.(({ key, value }) => {
   if (key === 'learningMode') buildAbout();
-  if (key === 'ttsEnabled' || key === 'autoApprove') {
+  if (key === 'ttsEnabled' || key === 'autoApprove' || key === 'cameraEnabled') {
     const box = document.querySelector(`[data-field-key="${key}"] input[type="checkbox"]`);
     if (box) box.checked = Boolean(value);
   }
@@ -543,6 +558,86 @@ document.getElementById('mem-clear').addEventListener('click', async () => {
   await api.clearMemories();
   loadMemories();
   toast('All memories forgotten');
+});
+
+// --- Camera: live preview, enrollment and the people list ----------------------
+const camPreview = document.getElementById('cam-preview');
+const camPreviewNote = document.getElementById('cam-preview-note');
+const peopleListEl = document.getElementById('people-list');
+const PREVIEW_MS = 350;
+let previewTimer = null;
+
+async function refreshPreview() {
+  const src = await api.cameraPreview();
+  camPreview.classList.toggle('hidden', !src);
+  camPreviewNote.classList.toggle('hidden', Boolean(src));
+  if (src) camPreview.src = src;
+  if (previewTimer) previewTimer = setTimeout(refreshPreview, PREVIEW_MS);
+}
+
+function startCameraPanel() {
+  loadPeople();
+  if (previewTimer) return;
+  previewTimer = setTimeout(refreshPreview, 0);
+}
+
+function stopCameraPanel() {
+  clearTimeout(previewTimer);
+  previewTimer = null;
+}
+
+async function loadPeople() {
+  const people = await api.listPeople();
+  peopleListEl.innerHTML = '';
+  if (!people.length) {
+    peopleListEl.append(el('p', { class: 'muted small', style: 'padding:14px', text:
+      'Nobody enrolled yet. Enroll yourself as the owner first.' }));
+    return;
+  }
+  for (const p of people) {
+    const role = el('select', {},
+      el('option', { value: 'owner', text: 'Owner' }),
+      el('option', { value: 'guest', text: 'Guest' }));
+    role.value = p.role;
+    role.addEventListener('change', async () => {
+      await api.updatePerson(p.id, { role: role.value });
+      loadPeople();
+      toast(`${p.name} is now ${role.value === 'owner' ? 'the owner' : 'a guest'}`);
+    });
+    const del = el('button', { class: 'btn small danger', text: 'Forget' });
+    del.addEventListener('click', async () => { await api.removePerson(p.id); loadPeople(); toast(`Forgot ${p.name}`); });
+    peopleListEl.append(
+      el('div', { class: 'mem-row' },
+        el('div', {},
+          el('div', { class: 'mem-text', text: p.name }),
+          el('div', { class: 'mem-src', text: `enrolled ${fmtTime(p.createdAt)}` })
+        ),
+        el('div', { class: 'person-actions' }, role, del)
+      )
+    );
+  }
+}
+
+document.getElementById('enroll-btn').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const nameInput = document.getElementById('enroll-name');
+  const name = nameInput.value.trim();
+  if (!name) return toast('Enter a name first', true);
+  btn.disabled = true;
+  btn.textContent = 'Look at the camera…';
+  try {
+    const res = await api.enrollPerson(name, document.getElementById('enroll-role').value);
+    if (res.ok) {
+      nameInput.value = '';
+      toast(`Enrolled ${res.person.name} (${res.samples} samples)`);
+      loadPeople();
+    } else {
+      toast(res.error || 'Enrollment failed', true);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Enroll';
+  }
 });
 
 const sysGrid = document.getElementById('sys-grid');

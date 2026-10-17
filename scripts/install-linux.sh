@@ -68,8 +68,9 @@ cat > "$UNITS/leslie.service" <<EOF
 [Unit]
 Description=LESLIE desktop companion
 PartOf=graphical-session.target
-After=graphical-session.target llama-router.service
-Wants=llama-router.service
+# The voice window opens the mic at startup, so wait for PipeWire to be up.
+After=graphical-session.target llama-router.service pipewire.service pipewire-pulse.service wireplumber.service
+Wants=llama-router.service pipewire.service wireplumber.service
 
 [Service]
 ExecStart=$DEST/leslie
@@ -87,6 +88,7 @@ EOF
 systemctl --user daemon-reload
 systemctl --user enable leslie.service
 [ -e "$UNITS/llama-router.service" ] || bash "$ROOT/scripts/setup-llama-router.sh"
+[ -e "$UNITS/leslie-vision.service" ] || bash "$ROOT/scripts/setup-vision.sh"
 
 echo
 echo "Installed. Both services start at login."

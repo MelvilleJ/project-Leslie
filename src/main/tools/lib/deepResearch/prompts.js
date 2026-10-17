@@ -130,6 +130,14 @@ Requirements:
 - Write in an engaging, informative style — not dry or robotic`;
 }
 
+function summary({ question, report }) {
+  return `Summarize this research report for someone who asked: ${question}
+
+${report}
+
+Write 3-6 short markdown bullet points giving the direct answer and the key findings. Keep the numbers that matter. No heading, no preamble.`;
+}
+
 function expandRequest() {
   return (
     'This report is too brief. Please expand it significantly:\n' +
@@ -150,5 +158,6 @@ module.exports = {
   synthesize,
   stopDecision,
   finalReport,
+  summary,
   expandRequest
 };

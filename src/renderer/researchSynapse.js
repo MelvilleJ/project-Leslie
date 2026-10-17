@@ -18,6 +18,7 @@
     reading: 'reading sources',
     analyzing: 'analyzing findings',
     writing: 'writing report',
+    summarizing: 'summarizing',
     error: 'error',
     done: 'complete'
   };

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; img-src 'self' leslie-sprite:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+        content="default-src 'none'; img-src 'self' leslie-sprite: data:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
   <title>LESLIE — Settings</title>
   <link rel="stylesheet" href="theme.css" />
   <link rel="stylesheet" href="settings.css" />
@@ -29,6 +29,7 @@
       <button class="nav-item" data-panel="generation" type="button">🎚 Generation</button>
       <button class="nav-item" data-panel="behaviour" type="button">🧠 Behaviour</button>
       <button class="nav-item" data-panel="voice" type="button">🎤 Voice</button>
+      <button class="nav-item" data-panel="camera" type="button">📷 Camera</button>
       <button class="nav-item" data-panel="animations" type="button">🎬 Animations</button>
       <button class="nav-item" data-panel="wardrobe" type="button">👗 Wardrobe</button>
       <button class="nav-item" data-panel="appearance" type="button">🎨 Appearance</button>
@@ -132,6 +133,32 @@
           phrases with commas.
         </p>
         <div id="shortcut-list" class="shortcut-list"></div>
+      </section>
+
+      <section class="panel" data-panel="camera">
+        <div class="panel-head"><h2>Camera</h2></div>
+        <div id="form-camera" class="form"></div>
+        <div class="panel-head subhead-row">
+          <h3 class="subhead">People</h3>
+        </div>
+        <p class="muted small" style="margin-bottom:10px">
+          Only face measurements are stored, never pictures. The owner unlocks commands, files and memories;
+          guests are greeted by name.
+        </p>
+        <div class="enroll card">
+          <img id="cam-preview" class="cam-preview hidden" alt="Camera preview" />
+          <p id="cam-preview-note" class="muted small">Turn the camera on to see the preview.</p>
+          <div class="enroll-form">
+            <input id="enroll-name" type="text" placeholder="Name" maxlength="60" />
+            <select id="enroll-role">
+              <option value="owner">Owner</option>
+              <option value="guest" selected>Guest</option>
+            </select>
+            <button id="enroll-btn" class="btn" type="button">Enroll</button>
+          </div>
+          <p class="muted small">Sit alone in front of the camera and turn your head slightly for a few seconds.</p>
+        </div>
+        <div id="people-list" class="list wide"></div>
       </section>
 
       <section class="panel" data-panel="animations">

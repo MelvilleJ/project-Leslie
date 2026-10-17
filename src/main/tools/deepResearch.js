@@ -1,11 +1,12 @@
 'use strict';
 
 const { research } = require('./lib/deepResearch/researcher');
-const { formatReport, reportBody } = require('./lib/deepResearch/report');
+const { formatReport, formatSummary, reportBody } = require('./lib/deepResearch/report');
 const createDocument = require('./createDocument');
 const config = require('../config');
 
 const SAVE_FORMATS = ['docx', 'pdf', 'md', 'html'];
+const DEFAULT_FORMAT = 'md';
 
 function hostOf(url) {
   try {
@@ -28,6 +29,8 @@ function phaseLabel(e) {
       return `Synthesizing (${e.totalFindings} source${e.totalFindings === 1 ? '' : 's'})…`;
     case 'writing':
       return 'Writing final report…';
+    case 'summarizing':
+      return 'Summarizing…';
     case 'error':
       return e.message || 'Search error';
     default:
@@ -70,13 +73,14 @@ async function run({ query, save_as: saveAs }, ctx = {}) {
     signal: ctx.signal
   });
 
-  const report = formatReport(String(query), out);
-  const format = String(saveAs || '').toLowerCase();
-  if (!format) return report;
-  if (!SAVE_FORMATS.includes(format)) return `${report}\n\n(Not saved: save_as must be one of ${SAVE_FORMATS.join(', ')}.)`;
-  if (config.planMode) return `${report}\n\n(Not saved: plan mode can't write files.)`;
+  // Nothing was gathered, so there is no report worth saving.
+  if (!out.findings.length) return formatReport(String(query), out);
+
+  const requested = String(saveAs || '').toLowerCase();
+  const format = SAVE_FORMATS.includes(requested) ? requested : DEFAULT_FORMAT;
+  if (config.planMode) return `${formatReport(String(query), out)}\n\n(Not saved: plan mode can't write files.)`;
   const saved = await saveReport(String(query), out, format);
-  return `${report}\n\n${saved.message} Tell the user where it is; don't repeat the whole report.`;
+  return formatSummary(String(query), out, saved.message);
 }
 
 module.exports = {
@@ -99,7 +103,7 @@ module.exports = {
       save_as: {
         type: 'string',
         enum: SAVE_FORMATS,
-        description: 'Also save the report as a document in this format. Omit to only get the report back.'
+        description: `Format for the saved report. Defaults to ${DEFAULT_FORMAT}; pick another only if the user asks for one.`
       }
     },
     required: ['query']

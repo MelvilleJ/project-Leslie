@@ -16,7 +16,19 @@ const DEFAULTS = [
   { id: 'mute', phrases: ['mute', 'mute yourself', 'be quiet'], tool: 'speech', args: { action: 'mute' },
     reply: 'Muted.' },
   { id: 'unmute', phrases: ['unmute', 'unmute yourself'], tool: 'speech', args: { action: 'unmute' },
-    reply: 'Voice is back on.' }
+    reply: 'Voice is back on.' },
+  { id: 'pause-media', phrases: ['pause', 'pause it', 'pause that', 'pause the video', 'pause the music', 'hold on'],
+    tool: 'media_control', args: { action: 'pause' }, reply: 'Paused.' },
+  { id: 'resume-media', phrases: ['resume', 'play', 'unpause', 'continue', 'keep playing', 'resume the video', 'play it'],
+    tool: 'media_control', args: { action: 'play' }, reply: 'Resuming.' },
+  { id: 'next-media', phrases: ['next', 'skip', 'skip this', 'next song', 'next track', 'next video'],
+    tool: 'media_control', args: { action: 'next' }, reply: 'Skipping.' },
+  { id: 'previous-media', phrases: ['previous', 'previous song', 'previous track', 'last song'],
+    tool: 'media_control', args: { action: 'previous' }, reply: 'Going back.' },
+  { id: 'fullscreen', phrases: ['full screen', 'fullscreen', 'make it full screen', 'go full screen'],
+    tool: 'window_control', args: { action: 'fullscreen' }, reply: 'Full screen.' },
+  { id: 'exit-fullscreen', phrases: ['exit full screen', 'exit fullscreen', 'leave full screen', 'shrink it'],
+    tool: 'window_control', args: { action: 'exit_fullscreen' }, reply: '' }
 ];
 
 let cache = null;

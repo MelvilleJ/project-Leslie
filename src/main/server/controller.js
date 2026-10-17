@@ -92,15 +92,19 @@ let watching = false;
 
 let following = false;
 let followed = null;
+let followedKey = null;
 
 async function followServer() {
   if (switching || following) return;
   following = true;
   try {
     const loaded = (await server.routerModels()).find((m) => m.status === 'loaded');
-    if (!loaded || loaded.id === followed) return;
+    // Reloading the same model with a vision projector changes what pi may send it.
+    const key = loaded && `${loaded.id}|${loaded.inputs.join(',')}`;
+    if (!loaded || (loaded.id === followed && key === followedKey)) return;
     await useModel(loaded.id);
     followed = loaded.id;
+    followedKey = key;
     console.log(`[server] now using ${loaded.id}`);
     publish();
   } catch (err) {
@@ -108,6 +112,18 @@ async function followServer() {
   } finally {
     following = false;
   }
+}
+
+/** Resolves true once a model is loaded and in use, false if none loads in time. */
+async function whenModelLoaded(timeoutMs = 5 * 60000) {
+  if (!config.serverManaged) return true;
+  const started = Date.now();
+  while (!followed) {
+    if (Date.now() - started > timeoutMs) return false;
+    await new Promise((r) => setTimeout(r, WATCH_MS));
+    await followServer();
+  }
+  return true;
 }
 
 /** At launch: bring the server up if needed, then keep LESLIE on whatever is loaded. */
@@ -181,6 +197,7 @@ module.exports = {
   turnEnded,
   service,
   startup,
+  whenModelLoaded,
   saveSettings,
   loadSettings: server.loadSettings,
   listModels: () => server.listModels(),

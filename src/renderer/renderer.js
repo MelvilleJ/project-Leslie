@@ -281,6 +281,7 @@ const speech = (() => {
     if (!enabled || !/[a-z0-9]/i.test(line)) return;
     spokeThisTurn = true;
     const gen = generation;
+    window.leslie.ttsSaid(line);
     const audio = window.leslie.ttsSpeak(line).catch(() => null);
     if (queued++ === 0) setPlaying(true);
     chain = chain.then(async () => {
@@ -311,11 +312,19 @@ const speech = (() => {
 
   return {
     busy: () => queued > 0,
+    /** Resolves once everything queued so far has been spoken (or cut off). */
+    whenQuiet: () => chain,
     /** Streaming answer text. */
     feed(delta) {
       if (!enabled) return;
       buffer += delta;
       drain(false);
+    },
+    /** A short spoken acknowledgement that isn't part of any reply. */
+    ack(text) {
+      const spoke = spokeThisTurn;
+      say(text);
+      spokeThisTurn = spoke;
     },
     /** End of turn: speak the remainder, or the whole reply if nothing streamed (shortcuts, commands). */
     finish(reply) {
@@ -478,6 +487,7 @@ const TOOL_ICON = {
   web_search: 'fa-magnifying-glass', deep_search: 'fa-magnifying-glass', open_search: 'fa-magnifying-glass',
   deep_research: 'fa-magnifying-glass-chart',
   open_url: 'fa-link', open_app: 'fa-rocket', run_command: 'fa-terminal',
+  play_video: 'fa-circle-play', media_control: 'fa-play', window_control: 'fa-window-maximize',
   install_software: 'fa-download', create_document: 'fa-file',
   read_file: 'fa-file-lines', read_document: 'fa-file-lines', list_directory: 'fa-folder',
   write_file: 'fa-file-pen', run_subagent: 'fa-diagram-project',
@@ -588,6 +598,7 @@ function toolCardProgress({ id, detail, research }) {
 }
 
 let streaming = false;
+let turnDone = Promise.resolve();
 
 window.leslie.onAgentThink((delta) => {
   if (!streaming) return;
@@ -645,7 +656,7 @@ function markDelivered(bubble) {
   if (tag) tag.remove();
 }
 
-async function send(text, { followUp = false } = {}) {
+async function send(text, { followUp = false, byVoice = false } = {}) {
   text = text.trim();
   const images = takeImages();
   if (!text && !images.length) return;
@@ -659,11 +670,16 @@ async function send(text, { followUp = false } = {}) {
   // Only keep "@" mentions whose path still appears in the message.
   const mentions = pendingMentions.filter((m) => text.includes(m.path));
   pendingMentions = [];
-  speech.stop();
+  // The wake word already silenced her, and stopping now would cut off the "On it".
+  if (!byVoice) speech.stop();
 
   setExpanded(true);
   appendUser(text, { images: images.length });
+  if (!byVoice) conversing = false;
   streaming = true;
+  let settleTurn;
+  turnDone = new Promise((resolve) => (settleTurn = resolve));
+  if (byVoice && !conversing) acknowledgeIfSlow();
   setSendMode(true);
   startThinking();
   setStatus('Thinking…');
@@ -676,6 +692,7 @@ async function send(text, { followUp = false } = {}) {
     res = { error: err && err.message ? err.message : String(err) };
   }
   streaming = false;
+  settleTurn();
   setSendMode(false);
   endTurn();
   setStatus('');
@@ -691,6 +708,8 @@ async function send(text, { followUp = false } = {}) {
     if (res && res.aborted) speech.stop();
     else speech.finish(res && res.reply);
   }
+  // Only a question from her keeps the mic open; a finished job goes back to needing her name.
+  if (byVoice && !(res && (res.error || res.aborted)) && window.dialog.invitesReply(res && res.reply)) keepListening();
 }
 
 const MODES = ['chat', 'plan', 'agent', 'assistant'];
@@ -766,6 +785,7 @@ const COMMANDS = {
     setStatus('Listening…');
   },
   mic: () => COMMANDS.listen(),
+  converse: (arg) => setConversation(!/^(off|0|false|stop|no)$/i.test(arg.trim())),
   settings: () => window.leslie.openSettings(),
   everyday: () => switchProfile('everyday'),
   power: () => switchProfile('power'),
@@ -963,6 +983,7 @@ const COMMAND_META = [
   { name: 'assistant', usage: '/assistant on|off', desc: 'One-off tasks, no conversation history' },
   { name: 'voice', usage: '/voice on|off', desc: 'Toggle voice listening' },
   { name: 'listen', usage: '/listen', desc: 'Dictate one utterance' },
+  { name: 'converse', usage: '/converse on|off', desc: 'Talk freely without saying her name' },
   { name: 'settings', usage: '/settings', desc: 'Settings & past conversations' },
   { name: 'reset', usage: '/reset', desc: 'Clear the conversation' },
   { name: 'hide', usage: '/hide', desc: 'Hide the window' },
@@ -1271,7 +1292,7 @@ settingsBtn.addEventListener('click', () => window.leslie.openSettings());
 // --- Voice dictation --------------------------------------------------------
 
 let typingTimer = null;
-function typeText(text, autoSend) {
+function typeText(text, autoSend, sendOpts) {
   if (typingTimer) clearInterval(typingTimer);
   input.focus();
   input.value = '';
@@ -1284,21 +1305,101 @@ function typeText(text, autoSend) {
       if (!autoSend) return;
       input.value = '';
       if (text.startsWith('/')) runCommand(text.trim());
-      else send(text);
+      else send(text, sendOpts);
     }
   }, 28);
 }
 
-window.leslie.onVoiceWake(({ command }) => {
+// {n} becomes ", <first name of whoever the camera sees>" or nothing.
+const WAKE_REPLIES = ['Yes{n}?', 'Yes{n}?', 'Hm?', "I'm here{n}.", 'What can I do{n}?'];
+const COMMAND_REPLIES = ['On it.', 'On it{n}.', 'Sure thing{n}.', 'Got it{n}.', 'Right away{n}.'];
+const THANKED_REPLIES = ["You're welcome{n}.", 'Any time{n}.', 'Happy to help{n}.', 'No problem{n}.'];
+let addressName = '';
+const named = (line) => line.replace('{n}', addressName ? `, ${addressName}` : '');
+const pickReply = (list) => named(list[Math.floor(Math.random() * list.length)]);
+
+const CONVERSE = /^(?:ok(?:ay)?[,.]?\s*)?(?:let'?s (?:talk|chat)|(?:start |enter )?(?:a )?conversation(?: mode)?(?: on)?)[.!]*$/i;
+
+// True while a spoken back-and-forth is going: follow-ups skip "Yes?" and "On it".
+let conversing = false;
+// Conversation mode: she hears everything without her name until dismissed or left idle.
+let conversation = false;
+
+function setConversation(on) {
+  conversation = on;
+  conversing = on;
+  window.leslie.setConversation(on);
+  systemLine(on
+    ? '🗣 Conversation mode on: no need to say my name. Say "that\'s all" to stop.'
+    : '🗣 Conversation mode off.');
+  if (on) speech.ack(named("I'm listening{n}."));
+}
+
+window.leslie.onConversationEnded(() => {
+  if (!conversation) return;
+  conversation = false;
+  conversing = false;
+  systemLine('🗣 Conversation mode off after a quiet spell.');
+});
+// The reply she was cut off from, which has to wind down before the next one starts.
+let cutOff = null;
+
+// "On it" only when the job takes a moment: instant shortcuts answer for themselves.
+const ACK_DELAY_MS = 700;
+function acknowledgeIfSlow() {
+  setTimeout(() => {
+    if (streaming && current && !current.raw && !speech.busy()) speech.ack(pickReply(COMMAND_REPLIES));
+  }, ACK_DELAY_MS);
+}
+
+// After a spoken exchange, listen for an answer without needing the wake word.
+async function keepListening() {
+  await speech.whenQuiet();
+  if (streaming || mic.classList.contains('off') || conversation) return;
+  if (!(await window.leslie.voiceFollowUp())) return;
+  conversing = true;
+  setStatus('Listening…');
+}
+
+window.leslie.onVoiceWake(({ command, interrupt }) => {
+  // Talking over her stops the reply; while she works silently it is queued as a steer instead.
+  if (streaming && speech.busy()) {
+    cutOff = turnDone;
+    window.leslie.cancel();
+  }
   speech.stop();
   setExpanded(true);
   mic.classList.add('listening');
-  if (!command) setStatus('Listening…');
+  conversing = conversation || Boolean(interrupt);
+  if (interrupt) setStatus('Listening…');
+  if (command || interrupt) return;
+  const reply = pickReply(WAKE_REPLIES);
+  setStatus(`${reply} Listening…`);
+  speech.ack(reply);
 });
 
-window.leslie.onVoiceFinal(({ text, autoSend }) => {
+window.leslie.onHush(() => speech.stop());
+
+window.leslie.onVoiceFinal(async ({ text, autoSend }) => {
   mic.classList.remove('listening');
-  if (text && text.trim()) typeText(text.trim(), autoSend !== false);
+  text = text && text.trim();
+  if (!text) return;
+  if (CONVERSE.test(text)) {
+    if (!conversation) setConversation(true);
+    return;
+  }
+  if (window.dialog.isClosing(text)) {
+    if (conversation) setConversation(false);
+    conversing = false;
+    setStatus('');
+    if (/thank|cheers|appreciate/i.test(text)) speech.ack(pickReply(THANKED_REPLIES));
+    return;
+  }
+  if (cutOff) {
+    await cutOff;
+    cutOff = null;
+  }
+  typeText(text, autoSend !== false, { byVoice: true });
 });
 
 function progressBar(pct) {
@@ -1765,6 +1866,18 @@ window.leslie.onPiEvent((ev) => {
   }
 });
 
+let piStarted = Promise.resolve();
+
+// Wait for the transcript to load first, or the reload would wipe the greeting.
+window.leslie.onAgentSay(async (text) => {
+  await piStarted;
+  if (streaming || !text) return;
+  setExpanded(true);
+  beginAssistant();
+  finishAssistant(text);
+  speech.finish(text);
+});
+
 async function startPi() {
   piModelChip.textContent = 'starting pi…';
   try {
@@ -1815,8 +1928,17 @@ window.leslie.onTheme(applyAccent);
 window.addEventListener('DOMContentLoaded', async () => {
   input.focus();
   setSendMode(streaming);
-  startPi();
+  piStarted = startPi();
   window.leslie.getMode().then(reflectMode);
   window.leslie.getAutoApprove().then(reflectAutoApprove);
   window.leslie.getAccent().then(applyAccent);
 });
+
+// --- Guest mode indicator (camera sees someone other than the owner) --------
+const guestIndicator = document.getElementById('guest-indicator');
+const showPresence = (snap) => {
+  guestIndicator.classList.toggle('hidden', !snap.restricted);
+  addressName = snap.name || '';
+};
+window.leslie.onPresence(showPresence);
+window.leslie.presence().then(showPresence).catch(() => {});

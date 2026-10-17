@@ -54,4 +54,15 @@ function formatReport(query, out) {
   return ['---', '', reportBody(out), '', '---', '', `**Research complete. Cite sources above when relevant to "${query}".**`].join('\n');
 }
 
-module.exports = { formatReport, reportBody };
+/** What the model gets back once the full report is saved: the summary, where the report is, and sources. */
+function formatSummary(query, out, savedMessage) {
+  const sourceLines = dedupeSources(out.findings);
+  const sections = ['## Research Summary', '', out.summary, '', `**Full report:** ${savedMessage}`, ''];
+  if (sourceLines.length) sections.push('### Sources', '', ...sourceLines, '');
+  sections.push(
+    `**Research complete for "${query}". Give the user this summary and tell them where the full report is; don't repeat the whole report.**`
+  );
+  return sections.join('\n');
+}
+
+module.exports = { formatReport, formatSummary, reportBody };

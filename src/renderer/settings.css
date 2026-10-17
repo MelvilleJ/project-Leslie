@@ -327,3 +327,11 @@ input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); }
 .wardrobe-picker { flex-wrap: wrap; }
 .wardrobe-picker .grid-cell { flex: 1 1 130px; }
 .wardrobe-now { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+/* --- Camera: enrollment and people ---------------------------------------- */
+.enroll { padding: 14px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 10px; }
+.cam-preview { width: 100%; max-width: 480px; border-radius: 8px; background: #000; }
+.enroll-form { display: flex; gap: 8px; }
+.enroll-form input { flex: 1; min-width: 160px; }
+.mem-row .person-actions { display: flex; gap: 6px; align-items: center; }
+.enroll-form select { flex: 0 0 auto; width: auto; }

@@ -54,7 +54,8 @@ function createBridge({ getTurn, systemSections }) {
       };
       try {
         const result = await tool.run(args || {}, { ...turnCtx(), signal: controller.signal, onProgress });
-        return { output: formatResult(result) };
+        const images = Array.isArray(result?.images) ? result.images : undefined;
+        return { output: formatResult(result), images };
       } finally {
         inflight.delete(callId);
       }

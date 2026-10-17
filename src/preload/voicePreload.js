@@ -7,5 +7,6 @@ contextBridge.exposeInMainWorld('voiceBridge', {
   onControl: (cb) => ipcRenderer.on('voice:control', (_e, msg) => cb(msg || {})),
   wake: (payload) => ipcRenderer.send('voice:wake', payload || {}),
   final: (payload) => ipcRenderer.send('voice:final', payload || {}),
-  status: (payload) => ipcRenderer.send('voice:status', payload || {})
+  status: (payload) => ipcRenderer.send('voice:status', payload || {}),
+  conversationEnded: () => ipcRenderer.send('voice:conversation-ended')
 });

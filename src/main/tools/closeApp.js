@@ -4,32 +4,7 @@
 // (matched on window title/class, so Steam games are found by their title), and
 // fall back to ending a process with that exact name.
 
-const { execFile } = require('node:child_process');
-const hyprland = require('../hyprland');
-const { compact } = require('./lib/linuxApps');
-
-function run(cmd, args) {
-  return new Promise((resolve) => {
-    execFile(cmd, args, { timeout: 10000 }, (err, stdout) => resolve({ ok: !err, code: err ? err.code : 0, stdout: String(stdout) }));
-  });
-}
-
-// LESLIE's own windows are never closed this way.
-const isLeslie = (c) => c.class === 'project-leslie' || c.pid === process.pid;
-
-async function matchingWindows(name) {
-  if (!hyprland.available()) return [];
-  const res = await run('hyprctl', ['-j', 'clients']);
-  if (!res.ok) return [];
-  const q = compact(name);
-  return JSON.parse(res.stdout).filter((c) => {
-    if (isLeslie(c)) return false;
-    return [c.title, c.class, c.initialClass, c.initialTitle].some((label) => {
-      const l = compact(label);
-      return l && (l === q || (q.length >= 4 && l.includes(q)));
-    });
-  });
-}
+const { run, matchingWindows } = require('./lib/hyprWindows');
 
 module.exports = {
   name: 'close_app',

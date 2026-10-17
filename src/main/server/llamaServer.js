@@ -288,7 +288,11 @@ async function api(route, body, { timeoutMs = 10000 } = {}) {
 
 async function routerModels() {
   const data = await api('/models');
-  return (data.data || []).map((m) => ({ id: m.id, status: (m.status && m.status.value) || 'unknown' }));
+  return (data.data || []).map((m) => ({
+    id: m.id,
+    status: (m.status && m.status.value) || 'unknown',
+    inputs: (m.architecture && m.architecture.input_modalities) || ['text']
+  }));
 }
 
 // --- GPUs --------------------------------------------------------------------

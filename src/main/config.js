@@ -64,7 +64,7 @@ module.exports = {
 
   systemPrompt:
     env.LESLIE_SYSTEM_PROMPT ||
-    'You are LESLIE, a friendly desktop companion. Reply in a warm, concise, conversational way - usually one or two short sentences.',
+    'You are LESLIE, a friendly desktop companion. Reply in a warm, concise, conversational way - usually one or two short sentences. Call the user by their first name when you know it, never "sir".',
 
   historyLimit: Number(env.LESLIE_HISTORY_LIMIT ?? 20),
 
@@ -120,6 +120,32 @@ module.exports = {
   researchExtractionTimeoutMs: Number(env.LESLIE_RESEARCH_EXTRACT_TIMEOUT_MS ?? 90000),
   researchSynthesisTimeoutMs: Number(env.LESLIE_RESEARCH_SYNTH_TIMEOUT_MS ?? 180000),
   researchQueryTimeoutMs: Number(env.LESLIE_RESEARCH_QUERY_TIMEOUT_MS ?? 60000),
+
+  // --- Watch: poll a database and a mailbox, then brief the user ------------
+  watchPgUrl: env.LESLIE_WATCH_PG_URL || '',
+  watchPgTables: (env.LESLIE_WATCH_PG_TABLES || '').split(',').map((s) => s.trim()).filter(Boolean),
+  watchPgIntervalSec: Number(env.LESLIE_WATCH_PG_INTERVAL ?? 60),
+  watchImapHost: env.LESLIE_WATCH_IMAP_HOST || '',
+  watchImapPort: Number(env.LESLIE_WATCH_IMAP_PORT ?? 993),
+  watchImapSecure: env.LESLIE_WATCH_IMAP_SECURE !== '0',
+  watchImapUser: env.LESLIE_WATCH_IMAP_USER || '',
+  watchImapPassword: env.LESLIE_WATCH_IMAP_PASSWORD || '',
+  watchImapMailbox: env.LESLIE_WATCH_IMAP_MAILBOX || 'INBOX',
+  watchImapIntervalSec: Number(env.LESLIE_WATCH_IMAP_INTERVAL ?? 120),
+
+  // --- Camera presence (scripts/setup-vision.sh runs the leslie-vision sidecar) ---
+  cameraEnabled: env.LESLIE_CAMERA === '1',
+  cameraDevice: env.LESLIE_CAMERA_DEVICE || '/dev/v4l/by-id/usb-UGREEN_Camera_2K_UGREEN_Camera_2K_SN0001-video-index0',
+  cameraServerUrl: env.LESLIE_CAMERA_SERVER_URL || 'http://127.0.0.1:8179',
+  cameraArriveSec: Number(env.LESLIE_CAMERA_ARRIVE_SEC ?? 3),
+  cameraLeaveSec: Number(env.LESLIE_CAMERA_LEAVE_SEC ?? 120),
+  cameraGreetAfterMin: Number(env.LESLIE_CAMERA_GREET_AFTER_MIN ?? 10),
+  cameraMatchThreshold: Number(env.LESLIE_CAMERA_MATCH_THRESHOLD ?? 0.4),
+  cameraOwnerGating: env.LESLIE_CAMERA_OWNER_GATING !== '0',
+  // Raise an open palm to make her listen; finger to lips to stop her talking.
+  cameraGestures: env.LESLIE_CAMERA_GESTURES !== '0',
+  cameraAwayPauseMedia: env.LESLIE_CAMERA_AWAY_PAUSE_MEDIA === '1',
+  cameraAwayMuteVoice: env.LESLIE_CAMERA_AWAY_MUTE_VOICE === '1',
 
   osTarget: env.LESLIE_OS_TARGET || (process.platform === 'linux' ? 'linux' : 'windows'),
   linuxDistro: env.LESLIE_LINUX_DISTRO || 'debian',

@@ -12,3 +12,7 @@ src/renderer/ort/
 
 tools/realesrgan/
 SampleRepos/
+vision/build/
+*.egg-info/
+.pytest_cache/
+__pycache__/

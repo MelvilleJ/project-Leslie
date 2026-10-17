@@ -69,6 +69,15 @@ contextBridge.exposeInMainWorld('settingsApi', {
   deleteConversation: (id) => ipcRenderer.invoke('conv:delete', id),
   newConversation: () => ipcRenderer.invoke('conv:new'),
 
+  // --- Camera presence --------------------------------------------------------
+  cameraDevices: () => ipcRenderer.invoke('camera:devices'),
+  /** One annotated frame as a data: URL, or null while the camera is off. */
+  cameraPreview: () => ipcRenderer.invoke('camera:preview'),
+  listPeople: () => ipcRenderer.invoke('people:list'),
+  enrollPerson: (name, role) => ipcRenderer.invoke('people:enroll', { name, role }),
+  updatePerson: (id, patch) => ipcRenderer.invoke('people:update', { id, patch }),
+  removePerson: (id) => ipcRenderer.invoke('people:remove', id),
+
   listMemories: () => ipcRenderer.invoke('memory:list'),
   deleteMemory: (id) => ipcRenderer.invoke('memory:delete', id),
   clearMemories: () => ipcRenderer.invoke('memory:clear'),

@@ -7,6 +7,7 @@ const { app } = require('electron');
 const config = require('../config');
 const settings = require('../settings');
 const memory = require('../memory');
+const presence = require('../presence/status');
 const { createTagRouter, FORMAT_INSTRUCTIONS } = require('../agent/replyTags');
 const { PLAN_MODE_DIRECTIVE, TASK_MODE_DIRECTIVE } = require('../agent/directives');
 const { toolDetail } = require('../agent/toolDetail');
@@ -71,10 +72,12 @@ function makeCtx(onEvent) {
 
 function systemSections() {
   const sections = { leslie_persona: config.systemPrompt };
-  if (config.learningMode) {
+  if (config.learningMode && !presence.restricted()) {
     const remembered = memory.format();
     if (remembered) sections.leslie_memory = remembered;
   }
+  const seen = presence.format();
+  if (seen) sections.leslie_presence = seen;
   if (config.detailedResponses) sections.leslie_reply_format = FORMAT_INSTRUCTIONS;
   if (config.planMode) sections.leslie_plan_mode = PLAN_MODE_DIRECTIVE;
   if (config.taskMode) sections.leslie_task_mode = TASK_MODE_DIRECTIVE;
@@ -433,7 +436,7 @@ function learnFrom(text, reply) {
   history.push({ role: 'user', content: text }, { role: 'assistant', content: reply });
   if (history.length > config.historyLimit) history = history.slice(-config.historyLimit);
   turnCount++;
-  if (config.learningMode && config.learnEvery > 0 && turnCount % config.learnEvery === 0) {
+  if (config.learningMode && !presence.restricted() && config.learnEvery > 0 && turnCount % config.learnEvery === 0) {
     extractMemories(history.slice()).catch(() => {});
   }
 }
@@ -508,7 +511,7 @@ function sessionChanged() {
 }
 
 function reset() {
-  if (config.learningMode && config.learnEvery > 0 && history.length) {
+  if (config.learningMode && !presence.restricted() && config.learnEvery > 0 && history.length) {
     extractMemories(history.slice()).catch(() => {});
   }
   return rpc('new_session').then(sessionChanged).catch(() => {});

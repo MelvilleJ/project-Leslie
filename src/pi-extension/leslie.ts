@@ -102,10 +102,15 @@ export default function (pi: ExtensionAPI) {
 				const onAbort = () => call("cancel", { callId: toolCallId }).catch(() => {});
 				signal?.addEventListener("abort", onAbort, { once: true });
 				try {
-					const { output } = await call("tool", { callId: toolCallId, name: spec.name, args: params }, (text) =>
+					const { output, images } = await call("tool", { callId: toolCallId, name: spec.name, args: params }, (text) =>
 						onUpdate?.({ content: [{ type: "text", text }], details: undefined }),
 					);
-					return { content: [{ type: "text", text: output }], details: undefined };
+					const pictures = (images ?? []).map((img: { data: string; mimeType: string }) => ({
+						type: "image" as const,
+						data: img.data,
+						mimeType: img.mimeType,
+					}));
+					return { content: [{ type: "text", text: output }, ...pictures], details: undefined };
 				} finally {
 					signal?.removeEventListener("abort", onAbort);
 				}

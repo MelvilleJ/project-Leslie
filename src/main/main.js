@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, session, shell, protocol, net, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, session, shell, protocol, net, dialog, Notification } = require('electron');
 const path = require('node:path');
 
 // The packaged build is named "LESLIE"; keep using the same settings folder as `npm start`.
@@ -26,9 +26,14 @@ const shortcuts = require('./shortcuts');
 const policy = require('./pi/policy');
 const permissions = require('./permissions');
 const idleReset = require('./idleReset');
+const greeting = require('./greeting');
+const watch = require('./watch');
+const { digest } = require('./watch/summarize');
+const presence = require('./presence');
 const { parseSpriteCss } = require('./spriteGrid');
 const fsSuggest = require('./fsSuggest');
 const listDirectory = require('./tools/listDirectory');
+const mediaControl = require('./tools/mediaControl');
 const readFile = require('./tools/readFile');
 const readDocument = require('./tools/readDocument');
 const { isDocument } = require('./tools/lib/docExtract');
@@ -267,6 +272,12 @@ function buildTrayMenu() {
       click: (item) => tts.setEnabled(item.checked)
     },
     {
+      label: 'Camera presence',
+      type: 'checkbox',
+      checked: config.cameraEnabled,
+      click: (item) => setCameraEnabled(item.checked)
+    },
+    {
       label: 'Auto mode (skip prompts for safe commands)',
       type: 'checkbox',
       checked: config.autoApprove,
@@ -479,10 +490,12 @@ function createVoiceWindow() {
       wakeWord: config.wakeWord,
       wakeTimeoutMs: config.wakeTimeoutMs
     });
+    watchMedia();
   });
 
   voiceWindow.on('closed', () => {
     voiceWindow = null;
+    clearTimeout(mediaTimer);
   });
 }
 
@@ -490,6 +503,27 @@ function controlVoice(action, value) {
   if (voiceWindow && !voiceWindow.isDestroyed()) {
     voiceWindow.webContents.send('voice:control', { action, value });
   }
+}
+
+// A playing video talks through the same speakers, so while one plays she
+// needs her name before treating speech as meant for her.
+async function mediaPlaying() {
+  const list = await mediaControl.players().catch(() => []);
+  return list.some((p) => p.status === 'Playing');
+}
+
+const MEDIA_POLL_MS = 2000;
+let mediaTimer = null;
+
+function watchMedia() {
+  clearTimeout(mediaTimer);
+  let last = null;
+  const check = async () => {
+    const playing = await mediaPlaying();
+    if (playing !== last) controlVoice('media', (last = playing));
+    if (voiceWindow) mediaTimer = setTimeout(check, MEDIA_POLL_MS);
+  };
+  check();
 }
 
 function reinitVoice() {
@@ -735,6 +769,7 @@ ipcMain.handle('pi:command', async (_event, { name, args } = {}) => {
 });
 
 ipcMain.handle('pi:bash', async (event, { command, excludeFromContext } = {}) => {
+  if (presence.snapshot().restricted) return { ok: false, error: 'Commands are disabled until the owner is back at the desk.' };
   const sender = event.sender;
   idleReset.userInput();
   idleReset.turnStarted();
@@ -768,9 +803,21 @@ ipcMain.handle('settings:set', (_event, { key, value } = {}) => {
     if (key === 'autoApprove') autoApproveChanged(res.value);
     if (key === 'ttsEnabled') tts.setEnabled(res.value);
     if (key === 'idleResetMinutes') idleReset.settingChanged();
+    if (configStore.CAMERA_KEYS.includes(key)) {
+      presence.settingsChanged();
+      if (key === 'cameraEnabled' && tray) tray.setContextMenu(buildTrayMenu());
+    }
   }
   return res;
 });
+
+ipcMain.handle('camera:devices', () => presence.devices().catch(() => []));
+ipcMain.handle('camera:preview', () => presence.preview().catch(() => null));
+ipcMain.handle('people:list', () => presence.people());
+ipcMain.handle('people:enroll', (_event, { name, role } = {}) => presence.enroll({ name, role }));
+ipcMain.handle('people:update', (_event, { id, patch } = {}) => presence.updatePerson(id, patch || {}));
+ipcMain.handle('people:remove', (_event, id) => presence.removePerson(id));
+ipcMain.handle('presence:get', () => presence.snapshot());
 
 // Spoken replies: the companion asks per sentence and plays the audio itself.
 ipcMain.handle('tts:speak', (_event, text) => tts.speak(text));
@@ -780,6 +827,7 @@ ipcMain.handle('tts:enabled', () => tts.isEnabled());
 ipcMain.on('tts:cancel', () => tts.cancel());
 // Her own voice would otherwise be transcribed (and could say her wake word).
 ipcMain.on('tts:playing', (_event, playing) => controlVoice('speaking', Boolean(playing)));
+ipcMain.on('tts:said', (_event, text) => controlVoice('said', String(text || '')));
 
 ipcMain.handle('shortcuts:get', () => ({ shortcuts: shortcuts.list(), tools: policy.bridgedSpecs() }));
 ipcMain.handle('shortcuts:save', (_event, list) => {
@@ -999,11 +1047,94 @@ ipcMain.on('voice:final', (_event, payload) => {
   toCompanion('leslie:voice-final', { ...(payload || {}), autoSend: config.voiceAutoSend });
 });
 ipcMain.on('voice:status', (_event, payload) => {
+  if (payload && payload.state === 'error') console.warn('[voice]', payload.message || 'error');
   toCompanion('leslie:voice-status', payload || {});
 });
 
 ipcMain.on('voice:set-active', (_event, value) => controlVoice('set-active', !!value));
 ipcMain.on('voice:listen-once', () => controlVoice('listen-once'));
+ipcMain.on('voice:conversation', (_event, on) => controlVoice('conversation', !!on));
+ipcMain.on('voice:conversation-ended', () => toCompanion('leslie:conversation-ended'));
+ipcMain.handle('voice:follow-up', async () => {
+  if (await mediaPlaying()) return false;
+  controlVoice('listen-once');
+  return true;
+});
+
+async function sayHello() {
+  const name = presence.addressName();
+  const text = (await modelServer.whenModelLoaded()) ? await greeting.generate({ name }) : greeting.fallback(name);
+  console.log(`\x1b[33m${text}\x1b[0m`);
+  const contents = companionWindow && !companionWindow.isDestroyed() && companionWindow.webContents;
+  if (!contents) return;
+  if (contents.isLoading()) contents.once('did-finish-load', () => toCompanion('agent:say', text));
+  else toCompanion('agent:say', text);
+}
+
+function brief(text, spoken = text) {
+  new Notification({ title: 'LESLIE', body: text, icon: APP_ICON }).show();
+  toCompanion('agent:say', spoken);
+}
+
+// What the camera turned off when the desk emptied, so only that is turned back on.
+const awayState = { mutedVoice: false, pausedMedia: false };
+
+async function welcome({ person, awayMs, held }) {
+  const awayMinutes = awayMs / 60000;
+  const greet = person.role !== 'unknown' && awayMinutes >= config.cameraGreetAfterMin;
+  if (!greet && !held.length) return;
+  showCompanion({ silent: true });
+  const loaded = await modelServer.whenModelLoaded();
+  const guest = person.role === 'guest' ? person.name.split(/\s+/)[0] : '';
+  const name = person.role === 'owner' ? person.name.split(/\s+/)[0] : '';
+  const [hello, catchUp] = await Promise.all([
+    greet ? (loaded ? greeting.generate({ name, awayMinutes, guest }) : guest ? `Hi, ${guest}.` : greeting.fallback(name)) : '',
+    held.length ? digest(held) : ''
+  ]);
+  if (catchUp) brief(catchUp, [hello, catchUp].filter(Boolean).join(' '));
+  else toCompanion('agent:say', hello);
+}
+
+function startPresence() {
+  presence.start({
+    arrived: (event) => welcome(event).catch((err) => console.warn('[presence] welcome failed:', err.message)),
+    activity: () => idleReset.userInput(),
+    changed: (snap) => toCompanion('leslie:presence', snap),
+    announce: (text) => brief(text),
+    gesture: (name) => {
+      if (name === 'palm') {
+        showCompanion({ silent: true });
+        controlVoice('listen-once');
+        toCompanion('leslie:voice-wake', { gesture: true });
+      } else if (name === 'shush') {
+        toCompanion('leslie:hush');
+      }
+    },
+    empty: async () => {
+      if (config.cameraAwayMuteVoice) {
+        controlVoice('set-active', false);
+        awayState.mutedVoice = true;
+      }
+      if (config.cameraAwayPauseMedia && (await mediaPlaying())) {
+        await mediaControl.run({ action: 'pause' }).catch(() => {});
+        awayState.pausedMedia = true;
+      }
+    },
+    occupied: async () => {
+      if (awayState.mutedVoice) controlVoice('set-active', true);
+      if (awayState.pausedMedia) await mediaControl.run({ action: 'play' }).catch(() => {});
+      awayState.mutedVoice = false;
+      awayState.pausedMedia = false;
+    }
+  });
+}
+
+function setCameraEnabled(on) {
+  configStore.set('cameraEnabled', on);
+  presence.settingsChanged();
+  if (tray) tray.setContextMenu(buildTrayMenu());
+  toSettings('settings:config-changed', { key: 'cameraEnabled', value: config.cameraEnabled });
+}
 
 // Autostart plus the app launcher would otherwise give two mascots; a second
 // launch just brings the running one forward, or toggles it with `leslie --toggle`
@@ -1050,7 +1181,8 @@ app.whenReady().then(() => {
   contextWindow.refresh();
   permissions.init({ icon: APP_ICON });
   forwardPiEvents();
-  modelServer.startup();
+  startPresence();
+  modelServer.startup().catch(() => {}).then(sayHello).then(() => watch.start(presence.holdOrAnnounce));
 
   createWindow();
   createDetailWindow();
@@ -1072,6 +1204,8 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   app.isQuitting = true;
   agent.shutdown();
+  watch.stop();
+  presence.stop();
   screenRecord.stop().catch(() => {});
   tts.shutdown();
 });

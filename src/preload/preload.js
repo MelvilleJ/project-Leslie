@@ -6,6 +6,18 @@ contextBridge.exposeInMainWorld('leslie', {
   sendMessage: (text, mentions, images) =>
     ipcRenderer.invoke('agent:message', { text, mentions: mentions || [], images: images || [] }),
 
+  presence: () => ipcRenderer.invoke('presence:get'),
+  /** A finger to the lips: stop speaking (the reply itself carries on). */
+  onHush: (cb) => {
+    const l = () => cb();
+    ipcRenderer.on('leslie:hush', l);
+    return () => ipcRenderer.removeListener('leslie:hush', l);
+  },
+  onPresence: (cb) => {
+    const l = (_e, snap) => cb(snap || {});
+    ipcRenderer.on('leslie:presence', l);
+    return () => ipcRenderer.removeListener('leslie:presence', l);
+  },
   recordingState: () => ipcRenderer.invoke('recording:state'),
   stopRecording: () => ipcRenderer.invoke('recording:stop'),
   onRecording: (cb) => {
@@ -93,8 +105,15 @@ contextBridge.exposeInMainWorld('leslie', {
     ipcRenderer.on('leslie:voice-status', l);
     return () => ipcRenderer.removeListener('leslie:voice-status', l);
   },
+  onConversationEnded: (cb) => {
+    const l = () => cb();
+    ipcRenderer.on('leslie:conversation-ended', l);
+    return () => ipcRenderer.removeListener('leslie:conversation-ended', l);
+  },
   setVoiceActive: (on) => ipcRenderer.send('voice:set-active', on),
+  setConversation: (on) => ipcRenderer.send('voice:conversation', !!on),
   voiceListenOnce: () => ipcRenderer.send('voice:listen-once'),
+  voiceFollowUp: () => ipcRenderer.invoke('voice:follow-up'),
 
   openSettings: (panel) => ipcRenderer.send('settings:open', panel),
   /** Model server (llama.cpp) — each resolves { ok, data | error }. */
@@ -125,6 +144,8 @@ contextBridge.exposeInMainWorld('leslie', {
   ttsCancel: () => ipcRenderer.send('tts:cancel'),
   /** Tell the voice listener she's talking, so it ignores her own voice. */
   ttsPlaying: (playing) => ipcRenderer.send('tts:playing', Boolean(playing)),
+  /** What she is about to say, so the voice listener can tell her echo from the user. */
+  ttsSaid: (text) => ipcRenderer.send('tts:said', text),
   getTtsEnabled: () => ipcRenderer.invoke('tts:enabled'),
   onTtsEnabled: (cb) => ipcRenderer.on('tts:enabled', (_e, on) => cb(Boolean(on))),
 

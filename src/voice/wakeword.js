@@ -31,18 +31,21 @@ function isNameToken(token, target) {
  * Detect the wake phrase at the start of a transcript.
  * The name must open the utterance, or follow as many lead-in words as the wake
  * phrase has ("hey leslie" allows one, which Whisper often mishears as "a"/"hay").
- * A name mentioned mid-sentence (TV, conversation) does not wake her.
+ * A name mentioned mid-sentence (TV, conversation) does not wake her, unless
+ * `anywhere` is set: over a playing video the user's words land mid-transcript.
  * @param {string} transcript
  * @param {string} wakeWord  e.g. "hey leslie"
+ * @param {{ anywhere?: boolean }} [opts]
  * @returns {{ matched: boolean, command: string }}
  *   command = any words spoken after the wake phrase in the same utterance.
  */
-function detectWake(transcript, wakeWord = 'hey leslie') {
+function detectWake(transcript, wakeWord = 'hey leslie', { anywhere = false } = {}) {
   const phrase = wakeWord.trim().split(/\s+/);
   const target = cleanToken(phrase.pop() || 'leslie');
   const words = String(transcript).trim().split(/\s+/).filter((w) => cleanToken(w));
 
-  for (let i = 0; i <= Math.min(phrase.length, words.length - 1); i++) {
+  const last = anywhere ? words.length - 1 : Math.min(phrase.length, words.length - 1);
+  for (let i = 0; i <= last; i++) {
     if (isNameToken(cleanToken(words[i]), target)) {
       return { matched: true, command: words.slice(i + 1).join(' ').trim() };
     }

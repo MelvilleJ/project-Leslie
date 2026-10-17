@@ -2,6 +2,10 @@
 
 const os = require('node:os');
 const config = require('../config');
+const presence = require('../presence/status');
+
+// Tools a guest may still use while the owner is away from the desk.
+const GUEST_BLOCKED = ['remember', 'read_document', 'install_software', 'model_profile', 'set_mode', 'screenshot', 'screen_record'];
 
 // Leslie tools pi has no equivalent for. run_command, list_directory, read_file,
 // write_file and task are covered by pi's bash, ls/find, read, write/edit and
@@ -14,6 +18,9 @@ const BRIDGED = {
   open_search: require('../tools/openSearch'),
   open_app: require('../tools/openApp'),
   close_app: require('../tools/closeApp'),
+  media_control: require('../tools/mediaControl'),
+  window_control: require('../tools/windowControl'),
+  play_video: require('../tools/playVideo'),
   create_document: require('../tools/createDocument'),
   read_document: require('../tools/readDocument'),
   remember: require('../tools/remember'),
@@ -22,6 +29,7 @@ const BRIDGED = {
   model_profile: require('../tools/modelProfile'),
   screen_record: require('../tools/screenRecord'),
   screenshot: require('../tools/screenshot'),
+  look: require('../tools/look'),
   speech: require('../tools/speech')
 };
 
@@ -42,11 +50,12 @@ function bridgedAllowed() {
       return true;
     })
     .filter((t) => !config.planMode || t.readOnly)
+    .filter((t) => !presence.restricted() || (t.readOnly && !GUEST_BLOCKED.includes(t.name)))
     .map((t) => t.name);
 }
 
 function piAllowed() {
-  if (!config.toolsEnabled) return [];
+  if (!config.toolsEnabled || presence.restricted()) return [];
   const list = config.fsReadEnabled || config.agentMode ? [...PI_READ_TOOLS] : [];
   if (config.agentMode && !config.planMode) list.push(...PI_WRITE_TOOLS);
   return list;

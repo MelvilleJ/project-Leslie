@@ -298,6 +298,32 @@ async function finalReport(question, report, cfg) {
   return result;
 }
 
+const SUMMARY_TOKENS = 400;
+
+// Used when the model can't summarize: the report's opening paragraph is its
+// executive summary.
+function leadParagraph(report) {
+  const para = String(report)
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .find((p) => p && !p.startsWith('#'));
+  return para ? para.slice(0, 800) : String(report).slice(0, 800);
+}
+
+async function summarize(question, report, cfg) {
+  const prompt = prompts.summary({ question, report: clampToBudget(report, cfg, SUMMARY_TOKENS) });
+  try {
+    const result = await llmCall([{ role: 'user', content: prompt }], {
+      temperature: 0.2,
+      maxTokens: completionBudget(prompt, cfg, SUMMARY_TOKENS),
+      timeoutMs: cfg.synthesisTimeoutMs,
+      signal: cfg.signal
+    });
+    if (result.trim()) return result.trim();
+  } catch {}
+  return leadParagraph(report);
+}
+
 function resolveConfig(overrides) {
   return {
     contextTokens: config.researchContextTokens,
@@ -395,10 +421,12 @@ async function research(question, opts = {}) {
         const detail = lastSearchError || 'no results from the search provider';
         emit({ phase: 'error', message: `Search unavailable: ${detail}` });
         if (!findings.length) {
+          const failure =
+            `**Search unavailable** — Web search failed after ${roundsCompleted} round(s). ` +
+            `Error: ${detail}\n\nPlease check your search provider settings and ensure the service is running.`;
           return {
-            report:
-              `**Search unavailable** — Web search failed after ${roundsCompleted} round(s). ` +
-              `Error: ${detail}\n\nPlease check your search provider settings and ensure the service is running.`,
+            report: failure,
+            summary: failure,
             findings: [],
             analyzedUrls: [],
             stats: statsFor(roundsCompleted)
@@ -421,20 +449,15 @@ async function research(question, opts = {}) {
 
   emit({ phase: 'writing' });
 
-  if (!report) {
-    if (findings.length) {
-      return { report: fallbackReport(question, findings), findings, analyzedUrls, stats: statsFor(roundsCompleted) };
-    }
-    return {
-      report: 'No information could be gathered for this question.',
-      findings: [],
-      analyzedUrls: [],
-      stats: statsFor(roundsCompleted)
-    };
+  if (!report && !findings.length) {
+    const none = 'No information could be gathered for this question.';
+    return { report: none, summary: none, findings: [], analyzedUrls: [], stats: statsFor(roundsCompleted) };
   }
 
-  const final = await finalReport(question, report, cfg).catch(() => report);
-  return { report: final, findings, analyzedUrls, stats: statsFor(roundsCompleted) };
+  const final = report ? await finalReport(question, report, cfg).catch(() => report) : fallbackReport(question, findings);
+  emit({ phase: 'summarizing' });
+  const summary = await summarize(question, final, cfg);
+  return { report: final, summary, findings, analyzedUrls, stats: statsFor(roundsCompleted) };
 }
 
 module.exports = { research };
