@@ -7,6 +7,13 @@ contextBridge.exposeInMainWorld('leslie', {
     ipcRenderer.invoke('agent:message', { text, mentions: mentions || [], images: images || [] }),
 
   presence: () => ipcRenderer.invoke('presence:get'),
+  /** A doc comment sent to Leslie: run it as a turn, then hand the reply back. */
+  onDocsAsk: (cb) => {
+    const l = (_event, ask) => cb(ask);
+    ipcRenderer.on('docs:ask', l);
+    return () => ipcRenderer.removeListener('docs:ask', l);
+  },
+  docsAnswer: (id, res) => ipcRenderer.send('docs:answer', { id, reply: res && res.reply, error: res && res.error }),
   /** A finger to the lips: stop speaking (the reply itself carries on). */
   onHush: (cb) => {
     const l = () => cb();

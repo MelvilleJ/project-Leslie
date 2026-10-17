@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="leslie-token" content="__TOKEN__">
+  <title>Leslie Docs</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="bar">
+    <a class="brand" href="/">Leslie Docs</a>
+    <span class="crumb" id="crumb"></span>
+    <span class="status" id="status"></span>
+    <span class="spacer"></span>
+    <button class="ghost" id="historyBtn" hidden>History</button>
+    <button class="ghost" id="downloadBtn" hidden>Download .md</button>
+  </header>
+
+  <main id="listView" hidden>
+    <section class="list">
+      <h1>Docs</h1>
+      <form id="newDoc" class="new-doc">
+        <input id="newTitle" placeholder="New doc title" autocomplete="off" required>
+        <button type="submit">Create</button>
+      </form>
+      <ul id="docList" class="doc-list"></ul>
+      <p class="hint" id="docsHint"></p>
+    </section>
+  </main>
+
+  <main id="docView" class="doc-layout" hidden>
+    <article class="page">
+      <div id="blocks"></div>
+      <button class="add-block" id="addBlock">+ Add a paragraph</button>
+    </article>
+    <aside class="rail" id="rail">
+      <div id="composer" class="thread composing" hidden>
+        <blockquote class="quote" id="composerQuote"></blockquote>
+        <textarea id="composerText" rows="3" placeholder="Comment, or ask Leslie to change this"></textarea>
+        <div class="actions">
+          <button class="ghost" id="composerCancel">Cancel</button>
+          <button class="ghost" id="composerSave">Comment</button>
+          <button id="composerAsk">Ask Leslie</button>
+        </div>
+      </div>
+      <div id="threads"></div>
+      <button class="ghost small" id="toggleResolved" hidden></button>
+    </aside>
+  </main>
+
+  <button id="commentFab" class="fab" hidden>Comment</button>
+
+  <div id="historyPanel" class="drawer" hidden>
+    <div class="drawer-head">
+      <h2>History</h2>
+      <button class="ghost" id="historyClose">Close</button>
+    </div>
+    <div class="drawer-body">
+      <ul id="versions" class="versions"></ul>
+      <div class="preview" id="versionPreview">
+        <p class="hint">Pick a version to preview it.</p>
+      </div>
+    </div>
+    <div class="drawer-foot">
+      <button id="restoreBtn" disabled>Restore this version</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="/static/markdown.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

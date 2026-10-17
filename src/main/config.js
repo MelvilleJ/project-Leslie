@@ -166,6 +166,11 @@ module.exports = {
   docsDir: env.LESLIE_DOCS_DIR || require('node:path').join(require('node:os').homedir(), 'Documents'),
   docsAutoOpen: env.LESLIE_DOCS_AUTO_OPEN !== '0',
 
+  // --- Live docs: markdown Leslie and the user edit together in the browser ---
+  liveDocsEnabled: env.LESLIE_LIVE_DOCS !== '0',
+  liveDocsDir: env.LESLIE_LIVE_DOCS_DIR || require('node:path').join(require('node:os').homedir(), 'Documents', 'Leslie'),
+  liveDocsPort: Number(env.LESLIE_LIVE_DOCS_PORT ?? 8191),
+
   // --- Filesystem reading (read-only) ---------------------------------------
   // OS-aware list_directory / read_file tools. On by default; set LESLIE_FS_READ=0
   // to remove them entirely. Caps bound how much a single read/list returns.

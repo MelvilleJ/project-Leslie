@@ -656,9 +656,9 @@ function markDelivered(bubble) {
   if (tag) tag.remove();
 }
 
-async function send(text, { followUp = false, byVoice = false } = {}) {
+async function send(text, { followUp = false, byVoice = false, display = '', fromDoc = false } = {}) {
   text = text.trim();
-  const images = takeImages();
+  const images = fromDoc ? [] : takeImages();
   if (!text && !images.length) return;
   if (streaming) {
     // A task runs outside the chat session, so there's nothing to steer.
@@ -668,13 +668,13 @@ async function send(text, { followUp = false, byVoice = false } = {}) {
   }
 
   // Only keep "@" mentions whose path still appears in the message.
-  const mentions = pendingMentions.filter((m) => text.includes(m.path));
-  pendingMentions = [];
+  const mentions = fromDoc ? [] : pendingMentions.filter((m) => text.includes(m.path));
+  if (!fromDoc) pendingMentions = [];
   // The wake word already silenced her, and stopping now would cut off the "On it".
   if (!byVoice) speech.stop();
 
   setExpanded(true);
-  appendUser(text, { images: images.length });
+  appendUser(display || text, { images: images.length });
   if (!byVoice) conversing = false;
   streaming = true;
   let settleTurn;
@@ -710,6 +710,7 @@ async function send(text, { followUp = false, byVoice = false } = {}) {
   }
   // Only a question from her keeps the mic open; a finished job goes back to needing her name.
   if (byVoice && !(res && (res.error || res.aborted)) && window.dialog.invitesReply(res && res.reply)) keepListening();
+  return res;
 }
 
 const MODES = ['chat', 'plan', 'agent', 'assistant'];
@@ -1867,6 +1868,13 @@ window.leslie.onPiEvent((ev) => {
 });
 
 let piStarted = Promise.resolve();
+
+window.leslie.onDocsAsk(async ({ id, prompt, label }) => {
+  await piStarted;
+  while (streaming) await turnDone;
+  const res = await send(prompt, { display: label, fromDoc: true });
+  window.leslie.docsAnswer(id, res || { error: 'the turn did not run' });
+});
 
 // Wait for the transcript to load first, or the reload would wipe the greeting.
 window.leslie.onAgentSay(async (text) => {

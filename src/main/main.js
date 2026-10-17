@@ -30,6 +30,7 @@ const greeting = require('./greeting');
 const watch = require('./watch');
 const { digest } = require('./watch/summarize');
 const presence = require('./presence');
+const docs = require('./docs');
 const { parseSpriteCss } = require('./spriteGrid');
 const fsSuggest = require('./fsSuggest');
 const listDirectory = require('./tools/listDirectory');
@@ -1095,6 +1096,47 @@ async function welcome({ person, awayMs, held }) {
   else toCompanion('agent:say', hello);
 }
 
+// "Ask Leslie" on a doc comment runs as a chat turn in the companion, so the
+// work shows there; her reply is posted back into the thread.
+const docAsks = new Map();
+let docAskSeq = 0;
+
+function docCommentPrompt(name, thread) {
+  const said = thread.messages.map((m) => `${m.author === 'leslie' ? 'Leslie' : 'User'}: ${m.text}`).join('\n');
+  return [
+    `A comment on the live doc "${name}" was sent to you.`,
+    `It is on block [${thread.blockId}]${thread.quote ? `, about the words "${thread.quote}"` : ''}. The thread:`,
+    said,
+    '',
+    'Do what the latest comment asks. To change the doc, doc_read it, then doc_edit only what was asked. ' +
+      'If it is a question, answer it from the doc. Your reply is posted in the comment thread, so keep it to one or ' +
+      'two short sentences: what you changed, or the answer.'
+  ].join('\n');
+}
+
+function askLeslieAboutComment(name, thread) {
+  const answer = (text) => {
+    try {
+      docs.store().reply(name, thread.id, { text, author: 'leslie' });
+    } catch (err) {
+      console.warn('[docs] could not post a reply:', err.message);
+    }
+  };
+  if (!companionWindow || companionWindow.isDestroyed()) return answer("I can't pick this up right now: my window is closed.");
+  const id = `doc-${++docAskSeq}`;
+  docAsks.set(id, answer);
+  showCompanion({ silent: true });
+  const latest = thread.messages[thread.messages.length - 1].text;
+  toCompanion('docs:ask', { id, prompt: docCommentPrompt(name, thread), label: `💬 On "${name}": ${latest}` });
+}
+
+ipcMain.on('docs:answer', (_event, { id, reply, error } = {}) => {
+  const answer = docAsks.get(id);
+  if (!answer) return;
+  docAsks.delete(id);
+  answer(error ? `I couldn't do that: ${error}` : String(reply || '').trim() || 'Done.');
+});
+
 function startPresence() {
   presence.start({
     arrived: (event) => welcome(event).catch((err) => console.warn('[presence] welcome failed:', err.message)),
@@ -1182,6 +1224,7 @@ app.whenReady().then(() => {
   permissions.init({ icon: APP_ICON });
   forwardPiEvents();
   startPresence();
+  docs.start().then(() => docs.onAsk(askLeslieAboutComment));
   modelServer.startup().catch(() => {}).then(sayHello).then(() => watch.start(presence.holdOrAnnounce));
 
   createWindow();
@@ -1206,6 +1249,7 @@ app.on('before-quit', () => {
   agent.shutdown();
   watch.stop();
   presence.stop();
+  docs.stop();
   screenRecord.stop().catch(() => {});
   tts.shutdown();
 });

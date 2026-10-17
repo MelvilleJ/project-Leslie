@@ -3,9 +3,10 @@
 const os = require('node:os');
 const config = require('../config');
 const presence = require('../presence/status');
+const docs = require('../docs');
 
 // Tools a guest may still use while the owner is away from the desk.
-const GUEST_BLOCKED = ['remember', 'read_document', 'install_software', 'model_profile', 'set_mode', 'screenshot', 'screen_record'];
+const GUEST_BLOCKED = ['remember', 'read_document', 'install_software', 'model_profile', 'set_mode', 'screenshot', 'screen_record', 'doc_list', 'doc_read', 'doc_open'];
 
 // Leslie tools pi has no equivalent for. run_command, list_directory, read_file,
 // write_file and task are covered by pi's bash, ls/find, read, write/edit and
@@ -30,7 +31,8 @@ const BRIDGED = {
   screen_record: require('../tools/screenRecord'),
   screenshot: require('../tools/screenshot'),
   look: require('../tools/look'),
-  speech: require('../tools/speech')
+  speech: require('../tools/speech'),
+  ...Object.fromEntries(require('../tools/liveDocs').map((t) => [t.name, t]))
 };
 
 const PI_READ_TOOLS = ['read', 'grep', 'find', 'ls'];
@@ -47,6 +49,7 @@ function bridgedAllowed() {
       if (t.name === 'install_software') return config.agentMode;
       if (t.name === 'read_document') return config.fsReadEnabled;
       if (t.name === 'remember') return config.learningMode;
+      if (t.name.startsWith('doc_')) return docs.enabled();
       return true;
     })
     .filter((t) => !config.planMode || t.readOnly)
