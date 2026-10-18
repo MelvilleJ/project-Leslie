@@ -407,13 +407,33 @@ Each phase is usable on its own.
 
 ---
 
-## 11. Decisions to make
+## 11. Decisions (taken)
 
-1. **Speech engine:** faster-whisper sidecar (recommended), WebGPU in-app, or
-   keep whisper.cpp as the only option.
-2. **pi:** bundled at a pinned version (recommended) or installed with pi's own
-   installer during setup.
-3. **Distros at launch:** Arch only first (recommended, matches the next goal),
-   or Arch plus Debian/Ubuntu and Fedora from day one.
-4. **Model folder default:** `~/.local/share/leslie/models` (recommended) or
-   `~/models`.
+1. **Speech engine:** the faster-whisper sidecar (`speech/`), CUDA through pip
+   wheels or CPU. whisper.cpp stays supported for installs that already have it.
+2. **pi:** bundled at the tested version (1.1.0). A pi on PATH still wins, so
+   an existing install keeps its own.
+3. **Distros:** the AUR package first, plus a tarball. Setup's package
+   installs know pacman, apt, dnf and zypper.
+4. **Model folder:** `~/.local/share/leslie/models`.
+
+## 12. What was built, and where it differs from the plan
+
+| Phase | Where | Notes |
+|---|---|---|
+| 0 | `config.js`, `configStore.js`, `llamaServer.js`, `vision/` | as planned |
+| 1 | `src/main/setup/`, `bin/leslie-setup`, `speech/` | as planned |
+| 2 | `llamaServer.js`, Settings, tray | Power became optional (an on/off switch) instead of profiles becoming a list: it gives single-GPU machines one profile without touching every caller of Everyday/Power |
+| 3 | `src/renderer/setup.*`, `src/main/setup/index.js` | camera enrolment happens after setup (the vision service only runs once installed): "Start and teach her my face" opens Settings → Camera |
+| 4 | `src/main/pi/launcher.js`, `cloud.js` | pi's RPC mode has no login, so cloud models use an API key LESLIE keeps sealed and hands to pi as the provider's environment variable |
+| 5 | `packaging/` | `leslie-setup` and `leslie-server` run through `packaging/leslie-cli` on the app's own Electron, so no system Node is needed |
+| 6 | `src/main/setup/maintain.js`, Settings → About | as planned |
+
+Not done:
+
+- `scripts/setup-*.sh` were kept as the hand-install path rather than turned
+  into wrappers around `leslie-setup`; they write the same units.
+- The repo has no LICENSE file; the PKGBUILD declares MIT (from package.json),
+  and namcap wants the file installed under /usr/share/licenses/leslie.
+- The other 51 env-only settings were not moved into Settings; setup only
+  needed the ones it writes.

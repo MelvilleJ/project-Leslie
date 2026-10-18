@@ -4,7 +4,21 @@ An AI agent desktop companion built with Electron. LESLIE is a frameless,
 transparent, always-on-top sprite character that lives on your desktop and
 (eventually) talks to an AI agent.
 
-## Run it
+## Install
+
+- **Arch:** build `packaging/aur/PKGBUILD` (`makepkg -si`), then open LESLIE
+  from the applications menu.
+- **Other distros:** `npm run dist:linux` makes a tarball; unpack it anywhere
+  and run `leslie`.
+
+The first launch opens a guided setup: it checks the system, detects the GPUs
+and picks a matching llama.cpp build, downloads a model sized for them (or uses
+a cloud provider's API key), and sets up voice, camera and autostart. It needs
+no terminal. Settings → About can run it again, repair a part, update the
+engine or uninstall. `leslie-setup probe | plan | run` does the same from a
+terminal. See [docs/guided-install-plan.md](docs/guided-install-plan.md).
+
+## Run it from source
 
 ```bash
 npm install      # installs Electron locally
