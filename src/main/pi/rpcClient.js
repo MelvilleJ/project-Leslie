@@ -12,9 +12,10 @@ const { StringDecoder } = require('node:string_decoder');
  * 'exit' ({ code, signal, stderr }).
  */
 class PiRpcClient extends EventEmitter {
-  constructor({ command, args = [], cwd, env }) {
+  constructor({ command, prefix = [], args = [], cwd, env }) {
     super();
     this.command = command;
+    this.prefix = prefix;
     this.args = args;
     this.cwd = cwd;
     this.env = env;
@@ -30,7 +31,7 @@ class PiRpcClient extends EventEmitter {
 
   start() {
     if (this.running) return;
-    const proc = spawn(this.command, ['--mode', 'rpc', ...this.args], {
+    const proc = spawn(this.command, [...this.prefix, '--mode', 'rpc', ...this.args], {
       cwd: this.cwd,
       env: this.env,
       stdio: ['pipe', 'pipe', 'pipe'],

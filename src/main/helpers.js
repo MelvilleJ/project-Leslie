@@ -141,7 +141,7 @@ function runOne(h, launch, model, signal) {
       '--tools', policy().helperSelection().activeTools.join(',') || 'none',
       h.task
     ];
-    const proc = spawn(launch.command, args, {
+    const proc = spawn(launch.command, [...(launch.prefix || []), ...args], {
       cwd: launch.cwd,
       env: { ...launch.env, LESLIE_HELPER: h.id },
       stdio: ['ignore', 'pipe', 'pipe'],

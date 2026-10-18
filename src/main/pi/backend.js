@@ -14,6 +14,7 @@ const { planModeDirective, TASK_MODE_DIRECTIVE, HELPER_DIRECTIVE } = require('..
 const { toolDetail } = require('../agent/toolDetail');
 const { extractMemories } = require('../agent/reflect');
 const { PiRpcClient } = require('./rpcClient');
+const launcher = require('./launcher');
 const { createBridge } = require('./bridge');
 const policy = require('./policy');
 const sessions = require('./sessions');
@@ -137,7 +138,7 @@ function signature() {
 
 function friendlyError(reason) {
   if (/ENOENT/.test(reason)) {
-    return `pi was not found ("${config.piCommand}"). Install pi or set the pi command in Settings.`;
+    return `pi was not found ("${launcher.resolve().label}"). Install pi or set the pi command in Settings.`;
   }
   return reason;
 }
@@ -215,11 +216,13 @@ function forwardEvent(ev) {
 // --- Process lifecycle ------------------------------------------------------
 
 function newClient(opts) {
+  const pi = launcher.resolve();
   const c = new PiRpcClient({
-    command: config.piCommand,
+    command: pi.command,
+    prefix: pi.prefix,
     args: piArgs(opts),
     cwd: policy.cwd(),
-    env: { ...process.env, LESLIE_BRIDGE: bridge.address, LESLIE_PI_MANIFEST: writeManifest() }
+    env: { ...process.env, ...pi.env, LESLIE_BRIDGE: bridge.address, LESLIE_PI_MANIFEST: writeManifest() }
   });
   c.on('ui-request', (req) => {
     uiOwners.set(req.id, c);
@@ -237,11 +240,13 @@ async function ensureBridge() {
 /** How to start a helper pi: the same extension and bridge as the main one. */
 async function helperLaunch() {
   await ensureBridge();
+  const pi = launcher.resolve();
   return {
-    command: config.piCommand,
+    command: pi.command,
+    prefix: pi.prefix,
     extension: EXTENSION_PATH,
     cwd: policy.cwd(),
-    env: { ...process.env, LESLIE_BRIDGE: bridge.address, LESLIE_PI_MANIFEST: writeManifest() }
+    env: { ...process.env, ...pi.env, LESLIE_BRIDGE: bridge.address, LESLIE_PI_MANIFEST: writeManifest() }
   };
 }
 

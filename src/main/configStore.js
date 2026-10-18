@@ -9,7 +9,7 @@ const SCHEMA = [
   { key: 'piModel', type: 'string', group: 'Connection', label: 'pi model',
     help: "Blank = pi's default model. 'leslie' = the server below. Or provider/model, e.g. llama.cpp/Qwen3." },
   { key: 'piCommand', type: 'string', group: 'Connection', label: 'pi command',
-    help: 'Path to the pi executable if it is not on PATH.' },
+    help: 'Blank uses pi from PATH if installed, otherwise the copy that ships with LESLIE.' },
   { key: 'piCwd', type: 'string', group: 'Connection', label: 'pi working folder',
     help: 'Where pi runs and stores sessions. Blank = your home folder.' },
 

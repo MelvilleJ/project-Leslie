@@ -39,7 +39,8 @@
 const env = process.env;
 
 module.exports = {
-  piCommand: env.LESLIE_PI_COMMAND || 'pi',
+  // Blank = a pi on PATH, else the one bundled with LESLIE.
+  piCommand: env.LESLIE_PI_COMMAND || '',
   // Blank uses pi's own default model; 'leslie' uses the server configured below.
   piModel: env.LESLIE_PI_MODEL || '',
   piCwd: env.LESLIE_PI_CWD || '',
