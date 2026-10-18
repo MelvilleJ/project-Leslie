@@ -139,6 +139,8 @@ function announceTyping(id) {
 }
 
 const isWaiting = (t) => t.asked && !t.resolved && t.messages[t.messages.length - 1].author === 'user';
+const isQueued = (t) => !t.asked && !t.resolved && t.messages[t.messages.length - 1].author === 'user';
+const reviewOpen = () => Boolean(doc && doc.plan && ['proposed', 'failed'].includes(doc.plan.status));
 
 function renderMarkdown(text) {
   return window.markdown.render(text.replace(PENDING_LINE, (_m, intent) => `*Pending: ${intent}*`));
@@ -214,14 +216,47 @@ function drawDiagrams(root) {
         const { svg } = await mermaid.render(`diagram-${++diagramSeq}`, code.textContent.replace(DIAGRAM_STYLING, ''));
         const figure = el('figure', 'diagram');
         figure.innerHTML = svg;
+        const enlarge = el('button', 'ghost small enlarge', 'Enlarge');
+        enlarge.onclick = () => showDiagram(figure.querySelector('svg'));
+        figure.append(enlarge);
         pre.replaceWith(figure);
       } catch (err) {
         const lines = String(err.message || err).split('\n').filter((l) => l.trim());
         const why = lines.length > 1 ? `${lines[0]} ${lines[lines.length - 1]}` : lines[0] || '';
-        pre.after(el('p', 'diagram-error', `This diagram has a mistake, so it is shown as text. ${why}`));
+        const note = el('p', 'diagram-error', `This diagram has a mistake, so it is shown as text. ${why} `);
+        const blockId = pre.closest('.block')?.dataset.id;
+        if (blockId) note.append(fixDiagramButton(blockId, why));
+        pre.after(note);
       }
     }
   });
+}
+
+// The copy keeps the original's id: mermaid scopes the drawing's styles to it.
+function showDiagram(svg) {
+  const box = $('diagramView');
+  const copy = svg.cloneNode(true);
+  const [, , w, h] = (copy.getAttribute('viewBox') || '').split(/\s+/).map(Number);
+  copy.removeAttribute('style');
+  if (w && h) copy.setAttribute('width', Math.min(window.innerWidth * 0.9, ((window.innerHeight * 0.9 - 64) / h) * w));
+  copy.removeAttribute('height');
+  $('diagramViewBody').replaceChildren(copy);
+  box.hidden = false;
+  $('diagramViewClose').focus();
+}
+
+function fixDiagramButton(blockId, why) {
+  const button = el('button', 'ghost small', 'Ask Leslie to fix it');
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      await api(docPath('/threads'), { method: 'POST', body: { blockId, text: `This diagram doesn't draw: ${why} Please fix it.`, ask: true } });
+    } catch (err) {
+      button.disabled = false;
+      toast(err.message);
+    }
+  };
+  return button;
 }
 
 function redrawDiagrams() {
@@ -496,7 +531,7 @@ function finishEditQuietly(e) {
 function onRenderClick(ev) {
   const node = ev.target.closest('.block');
   if (!node || !ev.target.closest('.render')) return;
-  if (ev.target.closest('a')) return;
+  if (ev.target.closest('a, button')) return;
   const mark = ev.target.closest('mark[data-thread]');
   if (mark) return focusThread(mark.dataset.thread);
   if (String(window.getSelection())) return;
@@ -538,6 +573,7 @@ function openComposer() {
   $('composer').dataset.block = selection.blockId;
   $('composer').dataset.quote = selection.quote;
   $('composerText').value = '';
+  $('composerSave').textContent = reviewOpen() ? 'Add to review' : 'Comment';
   $('composer').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   $('composerText').focus();
 }
@@ -667,7 +703,8 @@ function focusThread(id) {
 // --- plan -------------------------------------------------------------------
 
 const PLAN_TEXT = {
-  proposed: 'Leslie wrote this as a plan. Change anything above first if you like; approving switches her to agent mode and she carries out the plan as it stands.',
+  proposed: 'Leslie wrote this as a plan. Edit it yourself, or comment on it and request changes; approving switches her to agent mode and she carries out the plan as it stands.',
+  revising: 'Leslie is revising the plan with your feedback…',
   approved: 'Approved. Leslie switched to agent mode and is carrying it out…',
   done: 'Carried out.',
   failed: 'Not carried out.'
@@ -681,10 +718,27 @@ function renderPlan() {
   $('planText').textContent = PLAN_TEXT[plan.status] || '';
   $('planNote').textContent = plan.note || '';
   $('planNote').hidden = !plan.note;
-  const button = $('approvePlan');
-  button.hidden = !['proposed', 'failed'].includes(plan.status);
-  button.disabled = false;
-  button.textContent = plan.status === 'failed' ? 'Approve again' : 'Approve plan';
+  $('planReview').hidden = !reviewOpen();
+  $('approvePlan').disabled = false;
+  $('approvePlan').textContent = plan.status === 'failed' ? 'Approve again' : 'Approve plan';
+  const queued = doc.threads.filter(isQueued).length;
+  $('planQueued').hidden = !queued;
+  $('planQueued').textContent = `${queued} comment${queued === 1 ? '' : 's'} will go with your request.`;
+  $('requestChanges').disabled = !queued && !$('planChanges').value.trim();
+}
+
+async function requestChanges() {
+  const button = $('requestChanges');
+  button.disabled = true;
+  finishEdit();
+  try {
+    await saving;
+    await api(docPath('/plan'), { method: 'POST', body: { action: 'request-changes', note: $('planChanges').value } });
+    $('planChanges').value = '';
+  } catch (err) {
+    button.disabled = false;
+    toast(err.message);
+  }
 }
 
 async function approvePlan() {
@@ -783,7 +837,14 @@ function startDoc() {
   $('downloadBtn').onclick = download;
   $('approvePlan').addEventListener('mousedown', (e) => e.preventDefault());
   $('approvePlan').onclick = approvePlan;
+  $('requestChanges').addEventListener('mousedown', (e) => e.preventDefault());
+  $('requestChanges').onclick = requestChanges;
+  $('planChanges').addEventListener('input', renderPlan);
   LIGHT.addEventListener('change', redrawDiagrams);
+  const closeDiagram = () => ($('diagramView').hidden = true);
+  $('diagramViewClose').onclick = closeDiagram;
+  $('diagramView').addEventListener('click', (e) => e.target === e.currentTarget && closeDiagram());
+  document.addEventListener('keydown', (e) => e.key === 'Escape' && closeDiagram());
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && edit && edit.dirty) queueSave(edit);
   });

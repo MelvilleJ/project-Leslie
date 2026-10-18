@@ -10,6 +10,7 @@ let store = null;
 let server = null;
 let askHandler = null;
 let approveHandler = null;
+let reviseHandler = null;
 
 function enabled() {
   return config.liveDocsEnabled && Boolean(server);
@@ -23,7 +24,8 @@ async function start() {
     store,
     port: config.liveDocsPort,
     onAsk: (name, thread) => askHandler && askHandler(name, thread),
-    onApprove: (name) => approveHandler && approveHandler(name)
+    onApprove: (name) => approveHandler && approveHandler(name),
+    onRevise: (name, round) => reviseHandler && reviseHandler(name, round)
   });
   try {
     await candidate.listen();
@@ -58,8 +60,14 @@ function onApprove(fn) {
   approveHandler = fn;
 }
 
+/** Called with (docName, { note, threads }) when the user requests changes to a plan doc. */
+function onRevise(fn) {
+  reviseHandler = fn;
+}
+
 const PLAN_STATE = {
   proposed: 'a plan waiting for the user to approve it',
+  revising: 'a plan the user asked you to revise',
   approved: 'an approved plan being carried out',
   done: 'a plan that was carried out',
   failed: 'a plan that was not carried out'
@@ -98,6 +106,7 @@ module.exports = {
   stop,
   enabled,
   onAsk,
+  onRevise,
   onApprove,
   outline,
   store: requireStore,

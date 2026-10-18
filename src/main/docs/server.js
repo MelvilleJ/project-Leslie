@@ -20,7 +20,7 @@ const MAX_BODY = 4 * 1024 * 1024;
  * API call must send back; other sites can't read the page (no CORS) and the
  * Host check stops DNS rebinding, so only a tab this server served can edit.
  */
-function createDocsServer({ store, port, onAsk = () => {}, onApprove = () => {} }) {
+function createDocsServer({ store, port, onAsk = () => {}, onApprove = () => {}, onRevise = () => {} }) {
   const token = crypto.randomBytes(24).toString('hex');
   const streams = new Set();
   const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
@@ -115,6 +115,11 @@ function createDocsServer({ store, port, onAsk = () => {}, onApprove = () => {} 
       const plan = store.approvePlan(name);
       onApprove(name);
       return send(res, 200, plan);
+    }
+    if (sub === 'plan' && method === 'POST' && body.action === 'request-changes') {
+      const round = store.requestChanges(name, body.note);
+      onRevise(name, round);
+      return send(res, 200, store.get(name).plan);
     }
     if (sub === 'threads' && method === 'POST') {
       let thread;

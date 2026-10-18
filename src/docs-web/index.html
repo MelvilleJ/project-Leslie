@@ -37,7 +37,14 @@
         <h2>Plan</h2>
         <p id="planText"></p>
         <p class="plan-note" id="planNote" hidden></p>
-        <button id="approvePlan" hidden>Approve plan</button>
+        <div class="plan-review" id="planReview" hidden>
+          <textarea id="planChanges" rows="2" placeholder="What should change? Comments you add to the review go with it."></textarea>
+          <p class="plan-queued" id="planQueued" hidden></p>
+          <div class="actions">
+            <button class="ghost" id="requestChanges">Request changes</button>
+            <button id="approvePlan">Approve plan</button>
+          </div>
+        </div>
       </section>
     </article>
     <aside class="rail" id="rail">
@@ -71,6 +78,11 @@
     <div class="drawer-foot">
       <button id="restoreBtn" disabled>Restore this version</button>
     </div>
+  </div>
+
+  <div id="diagramView" class="diagram-view" hidden>
+    <button class="ghost" id="diagramViewClose">Close</button>
+    <div class="diagram-view-body" id="diagramViewBody"></div>
   </div>
 
   <div id="toast" class="toast" hidden></div>

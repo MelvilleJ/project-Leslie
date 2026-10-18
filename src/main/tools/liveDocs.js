@@ -2,6 +2,7 @@
 
 const config = require('../config');
 const docs = require('../docs');
+const { brokenDiagrams, diagramSources } = require('../docs/diagrams');
 
 const nameParam = { type: 'string', description: 'The doc name, as doc_list or doc_create gave it.' };
 
@@ -15,7 +16,18 @@ const DIAGRAM_NUDGE =
 
 // A doc written or revised in plan mode is the plan: it gets the Approve button.
 function markPlan(store, name) {
-  if (config.planMode && store.get(name).plan?.status !== 'proposed') store.setPlan(name, 'proposed');
+  if (config.planMode && !['proposed', 'revising'].includes(store.get(name).plan?.status)) store.setPlan(name, 'proposed');
+}
+
+async function diagramReport(store, name, written) {
+  const broken = await brokenDiagrams(written.join('\n\n'));
+  if (!broken.length) return '';
+  const blocks = store.readForLeslie(name).blocks;
+  const lines = broken.map(({ source, error }) => {
+    const block = blocks.find((b) => b.text.includes(source.trim()));
+    return `- the mermaid block${block ? ` in [${block.id}]` : ''} won't draw: ${error}`;
+  });
+  return `\n\nDiagram problem (the user sees it as plain text):\n${lines.join('\n')}\nFix it now with doc_edit replace on that block.`;
 }
 
 function editSummary(store, name, out) {
@@ -83,8 +95,9 @@ const docCreate = {
     const view = store.create(title, markdown || `# ${title}\n`);
     markPlan(store, view.name);
     openInBrowser(view.name, ctx);
-    const nudge = config.planMode && !/```mermaid/.test(markdown || '') ? `\n\n${DIAGRAM_NUDGE}` : '';
-    return `Created and opened${config.planMode ? ' as a plan with an Approve button' : ''}.\n\n${docs.outline(store.readForLeslie(view.name))}${nudge}`;
+    const nudge = config.planMode && !diagramSources(markdown).length ? `\n\n${DIAGRAM_NUDGE}` : '';
+    const problems = await diagramReport(store, view.name, [markdown || '']);
+    return `Created and opened${config.planMode ? ' as a plan with an Approve button' : ''}.\n\n${docs.outline(store.readForLeslie(view.name))}${nudge}${problems}`;
   }
 };
 
@@ -127,7 +140,8 @@ const docEdit = {
     openInBrowser(resolved, ctx);
     const out = store.apply(resolved, ops, 'leslie');
     if (out.results.some((r) => r.ok)) markPlan(store, resolved);
-    return editSummary(store, resolved, out);
+    const written = (Array.isArray(ops) ? ops : []).filter((op, i) => out.results[i]?.ok && typeof op.text === 'string').map((op) => op.text);
+    return editSummary(store, resolved, out) + (await diagramReport(store, resolved, written));
   }
 };
 

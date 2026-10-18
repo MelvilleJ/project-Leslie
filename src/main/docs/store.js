@@ -33,6 +33,11 @@ class DocError extends Error {}
  * Edits by Leslie are guarded: a block someone else changed since her last read
  * of the doc is refused, so a person's edit is never silently overwritten.
  */
+// A comment the user left for the next revision round: open, not sent, and theirs last.
+function isQueued(thread) {
+  return !thread.resolved && !thread.asked && thread.messages[thread.messages.length - 1].author === 'user';
+}
+
 class DocStore extends EventEmitter {
   constructor(dir, { now = Date.now } = {}) {
     super();
@@ -427,6 +432,7 @@ class DocStore extends EventEmitter {
   /**
    * A doc Leslie wrote in plan mode carries `{ status, at, note? }`: 'proposed'
    * until the user approves it, then 'approved', then 'done' or 'failed'.
+   * Requesting changes sends it to 'revising' and back to 'proposed'.
    */
   setPlan(name, status, note) {
     const doc = this.load(name);
@@ -440,6 +446,31 @@ class DocStore extends EventEmitter {
     const doc = this.load(name);
     if (!doc.plan || !['proposed', 'failed'].includes(doc.plan.status)) throw new DocError("This doc isn't a plan waiting for approval.");
     return this.setPlan(name, 'approved');
+  }
+
+  /** Sends the user's note and every comment still waiting for Leslie as one revision round. */
+  requestChanges(name, note) {
+    const doc = this.load(name);
+    if (!doc.plan || !['proposed', 'failed'].includes(doc.plan.status)) throw new DocError("This doc isn't a plan waiting for approval.");
+    const text = String(note || '').trim().slice(0, 2000);
+    const threads = doc.threads.filter(isQueued);
+    if (!text && !threads.length) throw new DocError('Say what should change, or add comments to the plan first.');
+    for (const t of threads) t.asked = true;
+    this.saveSidecar(doc);
+    this.setPlan(name, 'revising', text ? `You asked: ${text}` : '');
+    return { note: text, threads: threads.map((t) => structuredClone(t)) };
+  }
+
+  /** Ends a revision round: its comments are resolved when it worked, or wait for the next round when it didn't. */
+  finishRevision(name, threadIds, { ok, note }) {
+    const doc = this.load(name);
+    for (const t of doc.threads) {
+      if (!threadIds.includes(t.id)) continue;
+      t.asked = false;
+      if (ok) t.resolved = true;
+    }
+    this.saveSidecar(doc);
+    return this.setPlan(name, 'proposed', note);
   }
 
   // --- outside edits ---------------------------------------------------------

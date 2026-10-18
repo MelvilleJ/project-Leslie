@@ -195,3 +195,61 @@ test('code fences keep their language so the docs page can draw mermaid', () => 
   assert.match(render('```\nplain\n```'), /<pre><code>plain<\/code><\/pre>/);
   assert.match(render('```bad"lang\nx\n```'), /<code class="language-bad">/);
 });
+
+test('requesting changes sends the queued comments and note as one round', async () => {
+  const { store } = tmpStore();
+  store.create('Stow', '# Stow\n\n1. Copy them\n\n2. Link them\n');
+  const [, one, two] = store.get('Stow').blocks;
+  assert.throws(() => store.requestChanges('Stow', 'x'), /isn't a plan/);
+  store.setPlan('Stow', 'proposed');
+  assert.throws(() => store.requestChanges('Stow', ' '), /Say what should change/);
+  const queued = store.comment('Stow', { blockId: one.id, quote: 'Copy', text: 'Use rsync' });
+  store.comment('Stow', { blockId: two.id, text: 'Already asked', ask: true });
+  const replied = store.comment('Stow', { blockId: two.id, text: 'Why?' });
+  store.reply('Stow', replied.id, { text: 'Because.', author: 'leslie' });
+
+  const revised = [];
+  const s2 = createDocsServer({ store, port: 18191 + Math.floor(Math.random() * 2000), onRevise: (name, round) => revised.push([name, round]) });
+  await s2.listen();
+  const base = s2.url().replace(/\/$/, '');
+  try {
+    const token = (await (await fetch(`${base}/d/Stow`)).text()).match(/content="([0-9a-f]+)"/)[1];
+    const res = await fetch(`${base}/api/docs/Stow/plan`, {
+      method: 'POST',
+      headers: { 'x-leslie-token': token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'request-changes', note: 'Add a backup step' })
+    });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).status, 'revising');
+  } finally {
+    s2.close();
+  }
+  assert.equal(revised.length, 1);
+  const [name, round] = revised[0];
+  assert.equal(name, 'Stow');
+  assert.equal(round.note, 'Add a backup step');
+  assert.deepEqual(round.threads.map((t) => t.id), [queued.id], 'only open comments the user left last, not yet sent');
+  assert.equal(store.get('Stow').threads.find((t) => t.id === queued.id).asked, true);
+  assert.throws(() => store.requestChanges('Stow', 'again'), /isn't a plan/, 'one round at a time');
+
+  store.finishRevision('Stow', [queued.id], { ok: false, note: 'Could not.' });
+  const back = store.get('Stow').threads.find((t) => t.id === queued.id);
+  assert.equal(back.asked, false);
+  assert.equal(back.resolved, false, 'a failed round leaves the comment for the next one');
+  assert.equal(store.get('Stow').plan.status, 'proposed');
+
+  const again = store.requestChanges('Stow', '');
+  store.finishRevision('Stow', again.threads.map((t) => t.id), { ok: true, note: 'Switched to rsync.' });
+  assert.equal(store.get('Stow').threads.find((t) => t.id === queued.id).resolved, true);
+  assert.deepEqual([store.get('Stow').plan.status, store.get('Stow').plan.note], ['proposed', 'Switched to rsync.']);
+});
+
+test('broken mermaid diagrams are found with their error', async () => {
+  const { brokenDiagrams } = require('../src/main/docs/diagrams');
+  const md = '# Plan\n\n```mermaid\nflowchart LR\n  A[Repo] --> B[Home]\n```\n\n```mermaid\nflowchart LR\n  A[[broken -->\n```\n';
+  const broken = await brokenDiagrams(md);
+  assert.equal(broken.length, 1);
+  assert.match(broken[0].source, /broken/);
+  assert.match(broken[0].error, /Parse error/);
+  assert.deepEqual(await brokenDiagrams('no diagrams here'), []);
+});

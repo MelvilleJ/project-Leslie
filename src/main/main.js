@@ -1214,6 +1214,42 @@ function carryOutPlan(name) {
   toCompanion('docs:ask', { id, prompt: approvedPlanPrompt(name), label: `✅ Approved plan: "${name}"` });
 }
 
+function revisePlanPrompt(name, { note, threads }) {
+  const points = threads.map((t, i) => {
+    const said = t.messages.filter((m) => m.author === 'user').map((m) => m.text).join(' / ');
+    return `${i + 1}. On block [${t.blockId}]${t.quote ? ` ("${t.quote.slice(0, 200)}")` : ''}: ${said}`;
+  });
+  if (note) points.push(`${points.length + 1}. Overall: ${note}`);
+  return [
+    `The user reviewed your plan in the live doc "${name}" and asked for changes. You are in plan mode: change only the doc.`,
+    '',
+    ...points,
+    '',
+    'doc_read the doc, then doc_edit it so every point above is handled, and leave the parts they did not mention alone. ' +
+      'If the plan has a diagram, keep it in step with the steps. If a point cannot be done, leave that part and say why.',
+    'Then reply in one or two sentences saying what you changed; the user will approve the plan or ask for more changes.'
+  ].join('\n');
+}
+
+// Request changes sends the plan's open comments and the user's note as one plan-mode turn.
+function revisePlan(name, round) {
+  const ids = round.threads.map((t) => t.id);
+  const settle = (ok, note) => {
+    try {
+      docs.store().finishRevision(name, ids, { ok, note });
+    } catch (err) {
+      console.warn('[docs] could not finish the revision:', err.message);
+    }
+  };
+  if (!companionWindow || companionWindow.isDestroyed()) return settle(false, "My window is closed, so I couldn't revise it.");
+  if (currentMode() !== 'plan') applyMode('plan');
+  const id = `doc-${++docAskSeq}`;
+  docAsks.set(id, (text, failed) => settle(!failed, text));
+  showCompanion({ silent: true });
+  const count = round.threads.length + (round.note ? 1 : 0);
+  toCompanion('docs:ask', { id, prompt: revisePlanPrompt(name, round), label: `✏️ Changes to the plan "${name}" (${count} point${count === 1 ? '' : 's'})` });
+}
+
 ipcMain.on('docs:answer', (_event, { id, reply, error } = {}) => {
   const answer = docAsks.get(id);
   if (!answer) return;
@@ -1318,6 +1354,7 @@ app.whenReady().then(() => {
   docs.start().then(() => {
     docs.onAsk(askLeslieAboutComment);
     docs.onApprove(carryOutPlan);
+    docs.onRevise(revisePlan);
   });
   modelServer.startup().catch(() => {}).then(sayHello).then(() => watch.start(presence.holdOrAnnounce));
 
