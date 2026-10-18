@@ -256,6 +256,12 @@ function open() {
   win.on('closed', () => {
     win = null;
     if (abort) abort.abort();
+    // The app quits before aborted tasks report back, so record them here.
+    const saved = state.load();
+    if (saved) {
+      for (const task of Object.values(saved.tasks)) if (task.status === 'running') Object.assign(task, { status: 'stopped', error: 'Setup was closed' });
+      state.save(saved);
+    }
     if (!finishing) app.quit();
   });
   return win;
