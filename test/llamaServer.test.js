@@ -125,3 +125,12 @@ test('blank devices leave the device line out so llama.cpp uses every GPU', () =
   assert.doesNotMatch(everyday, /^device =/m);
   assert.match(everyday, /ctx-size = 65536/);
 });
+
+test('a Power profile that is off writes no preset', async () => {
+  const settings = fixture();
+  settings.profiles.power = { ...settings.profiles.power, enabled: false };
+  writePresets(settings);
+  const text = fs.readFileSync(settings.presetsFile, 'utf8');
+  assert.equal(section(text, 'Qwen3.8-27B-UD-Q4_K_M'), null);
+  assert.ok(section(text, 'gpt-oss-20b-unsloth'));
+});

@@ -43,9 +43,11 @@ const DEFAULTS = {
       // null = let llama.cpp's --fit decide how much to offload to RAM for this GPU.
       cpuMoeLayers: null
     },
+    // Off on machines with one GPU, where it would only repeat Everyday.
     power: {
       label: 'Power',
       description: 'The strongest model',
+      enabled: true,
       model: '',
       devices: '',
       tensorSplit: '',
@@ -72,6 +74,8 @@ const DEFAULTS = {
   // context to whatever VRAM happens to be free.
   modelPresets: {}
 };
+
+const isOn = (profile) => profile.enabled !== false;
 
 const PRESET_FIELDS = ['devices', 'tensorSplit', 'ctx', 'cacheType', 'specType', 'cpuMoeLayers'];
 
@@ -204,6 +208,7 @@ function writePresets(settings = loadSettings()) {
   const ours = new Map();
   for (const name of PROFILES) {
     const profile = settings.profiles[name];
+    if (!isOn(profile)) continue;
     const entry = models.get(profile.model);
     if (entry) ours.set(profile.model, presetSection(profile.model, profile, entry, name === 'everyday', settings.threads));
   }
@@ -343,9 +348,22 @@ async function gpus() {
 
 // --- Status + switching ------------------------------------------------------
 
+// Starting llama-server just to list devices takes a second, so do it once per binary.
+let deviceCache = null;
+
+/** The router's devices, one per physical GPU, named as the presets expect (CUDA0, Vulkan0…). */
+async function devices(settings = loadSettings()) {
+  const binary = settings.binary || 'llama-server';
+  if (deviceCache && deviceCache.binary === binary) return deviceCache.list;
+  const hardware = require('../setup/hardware');
+  const list = hardware.physicalDevices(await hardware.listDevices(binary));
+  if (list.length) deviceCache = { binary, list };
+  return list;
+}
+
 async function status() {
   const settings = loadSettings();
-  const [svc, gpuList] = await Promise.all([serviceState(settings.unit), gpus()]);
+  const [svc, gpuList, deviceList] = await Promise.all([serviceState(settings.unit), gpus(), devices(settings)]);
   let models = [];
   let reachable = false;
   try {
@@ -354,7 +372,10 @@ async function status() {
   } catch {
   }
   const byId = new Map(models.map((m) => [m.id, m.status]));
-  const profiles = PROFILES.map((name) => ({ name, ...settings.profiles[name], state: byId.get(settings.profiles[name].model) || 'missing' }));
+  const profiles = PROFILES.map((name) => {
+    const p = settings.profiles[name];
+    return { name, ...p, state: isOn(p) ? byId.get(p.model) || 'missing' : 'off' };
+  });
   const loaded = models.filter((m) => m.status === 'loaded' || m.status === 'loading');
   const active = profiles.find((p) => p.state === 'loaded' || p.state === 'loading');
   return {
@@ -366,7 +387,8 @@ async function status() {
     modelPresets: settings.modelPresets,
     helper: { ...settings.helper, state: byId.get(settings.helper.model) || 'missing' },
     loaded: loaded.map((m) => m.id),
-    gpus: gpuList
+    gpus: gpuList,
+    devices: deviceList
   };
 }
 
@@ -393,6 +415,7 @@ async function switchProfile(profile, onProgress = () => {}) {
   const settings = loadSettings();
   const target = settings.profiles[profile];
   if (!target) throw new Error(`Unknown profile ${profile}`);
+  if (!isOn(target)) throw new Error(`${target.label} mode isn't set up on this computer (Settings → Models & GPUs).`);
   if (!target.model) throw new Error(`No model is chosen for ${target.label} yet (Settings → Models & GPUs).`);
   const models = await routerModels();
   if (!models.some((m) => m.id === target.model)) throw new Error(`${target.model} is not in ${settings.modelsDir}`);
@@ -454,6 +477,7 @@ module.exports = {
   routerModels,
   gpus,
   status,
+  devices,
   switchProfile,
   loadHelper,
   unloadHelper,

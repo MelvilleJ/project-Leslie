@@ -239,6 +239,7 @@ input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); }
 .status-line { margin-bottom: 12px; }
 .srv-profile .srv-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .srv-profile .srv-head h3 { margin: 0; }
+.srv-profile .srv-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; color: #c8c8d8; cursor: pointer; }
 .srv-profile.active { border-color: rgba(155, 123, 255, 0.7); }
 .srv-profile .srv-form { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; margin: 10px 0; font-size: 0.76rem; color: #9a9ab0; }
 .srv-profile .srv-form input,

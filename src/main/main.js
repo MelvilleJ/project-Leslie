@@ -218,6 +218,7 @@ async function convertAsepriteFromMenu() {
 }
 
 let trayProfile = null;
+let trayPowerOn = true;
 
 function switchProfileFromTray(profile) {
   modelServer.switchTo(profile).catch((err) => toCompanion('pi:event', { type: 'notify', level: 'error', message: err.message }));
@@ -245,7 +246,7 @@ function buildTrayMenu() {
       label: 'Model',
       submenu: [
         { label: 'Everyday', type: 'radio', checked: trayProfile === 'everyday', click: () => switchProfileFromTray('everyday') },
-        { label: 'Power', type: 'radio', checked: trayProfile === 'power', click: () => switchProfileFromTray('power') },
+        ...(trayPowerOn ? [{ label: 'Power', type: 'radio', checked: trayProfile === 'power', click: () => switchProfileFromTray('power') }] : []),
         { type: 'separator' },
         { label: 'Models & GPUs…', click: () => showSettingsWindow('server') }
       ]
@@ -717,6 +718,9 @@ async function switchProfileCommand(profile) {
   const label = profile === 'power' ? 'Power' : 'Everyday';
   try {
     const st = await modelServer.status();
+    if (st.profiles.some((p) => p.name === profile && p.state === 'off')) {
+      return { reply: `${label} mode isn't set up on this computer; turn it on in Settings → Models & GPUs.` };
+    }
     if (st.activeProfile === profile) return { reply: `${label} mode is already on.` };
     modelServer.requestSwitch(profile);
     return { reply: `Switching to ${label} mode — ${profile === 'power' ? 'about 20' : 'about 10'} seconds.` };
@@ -768,8 +772,10 @@ ipcMain.handle('server:models', () => settle(Promise.resolve(modelServer.listMod
 modelServer.onEvent((ev) => {
   if (ev.type === 'status') {
     const active = ev.status.activeProfile;
-    if (active !== trayProfile && tray) {
+    const powerOn = ev.status.profiles.some((p) => p.name === 'power' && p.state !== 'off');
+    if ((active !== trayProfile || powerOn !== trayPowerOn) && tray) {
       trayProfile = active;
+      trayPowerOn = powerOn;
       tray.setContextMenu(buildTrayMenu());
     }
   }

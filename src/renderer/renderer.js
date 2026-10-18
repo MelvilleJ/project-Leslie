@@ -1701,7 +1701,7 @@ async function serverProfiles() {
   const res = await window.leslie.server.status();
   if (!res.ok || !res.data.reachable) return [];
   return res.data.profiles
-    .filter((p) => p.state !== 'missing')
+    .filter((p) => p.state !== 'missing' && p.state !== 'off')
     .map((p) => ({
       label: `${p.name === 'power' ? '⚡' : '🌙'} ${p.label} — ${p.model}`,
       detail: !p.devices ? 'every GPU' : p.devices.includes(',') ? 'several GPUs' : p.devices,

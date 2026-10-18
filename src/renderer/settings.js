@@ -938,17 +938,15 @@ const srvPresetModel = document.getElementById('srv-preset-model');
 const srvLogEl = document.getElementById('srv-log');
 const srvEnabled = document.getElementById('srv-enabled');
 
-const DEVICE_OPTIONS = [
-  { value: '', label: 'Automatic (every GPU)' },
-  { value: 'CUDA0', label: 'First NVIDIA GPU (CUDA0)' },
-  { value: 'Vulkan0', label: 'First Vulkan GPU (Vulkan0)' },
-  { value: 'CUDA0,Vulkan0', label: 'NVIDIA + Vulkan GPU (CUDA0,Vulkan0)' }
-];
+// The router's devices, one per physical GPU (from llama-server --list-devices).
+let srvDevices = [];
 
-// Keeps a saved device list the menu doesn't know (e.g. Vulkan1) instead of
-// showing the first option and overwriting it on save.
+// A saved device list the menu doesn't offer is kept as its own option, so
+// saving never silently swaps it for the first entry.
 function deviceOptions(current) {
-  return DEVICE_OPTIONS.some((o) => o.value === (current || '')) ? DEVICE_OPTIONS : [...DEVICE_OPTIONS, { value: current, label: current }];
+  const opts = [{ value: '', label: 'Automatic (every GPU)' }, ...srvDevices.map((d) => ({ value: d.id, label: `${d.name} (${d.id})` }))];
+  if (srvDevices.length > 1) opts.push({ value: srvDevices.map((d) => d.id).join(','), label: `All ${srvDevices.length} GPUs together` });
+  return opts.some((o) => o.value === (current || '')) ? opts : [...opts, { value: current, label: current }];
 }
 const CTX_OPTIONS = [8192, 16384, 32768, 65536, 131072, 262144];
 const CACHE_OPTIONS = [
@@ -978,7 +976,22 @@ function select(options, value) {
   return s;
 }
 
+function profileSwitch(p) {
+  const on = el('input', { type: 'checkbox' });
+  on.checked = p.state !== 'off';
+  on.addEventListener('change', async () => {
+    srvEditing = false;
+    if (srvToast(await srv.save({ profiles: { [p.name]: { enabled: on.checked } } }), `${p.label} ${on.checked ? 'on' : 'off'}`)) refreshServer();
+  });
+  return el('label', { class: 'srv-toggle', title: 'Off hides this profile everywhere; useful with a single GPU.' }, on, el('span', { text: 'Use' }));
+}
+
 function renderProfile(p, st) {
+  if (p.state === 'off') {
+    return el('div', { class: 'scard srv-profile' },
+      el('div', { class: 'srv-head' }, el('h3', { text: p.label }), profileSwitch(p)),
+      el('div', { class: 'sub', text: `${p.description}. Off on this computer.` }));
+  }
   const active = st.activeProfile === p.name;
   const stateText = { loaded: 'loaded', loading: 'loading…', unloaded: 'not loaded', missing: 'model missing' }[p.state] || p.state;
   const model = select(srvModels.map((m) => ({ value: m.id, label: `${m.id} (${(m.bytes / 1e9).toFixed(1)} GB)` })), p.model);
@@ -1011,7 +1024,8 @@ function renderProfile(p, st) {
   });
 
   return el('div', { class: `scard srv-profile${active ? ' active' : ''}` },
-    el('div', { class: 'srv-head' }, el('h3', { text: p.label }), el('span', { class: `srv-state ${p.state}`, text: stateText })),
+    el('div', { class: 'srv-head' }, el('h3', { text: p.label }), el('span', { class: `srv-state ${p.state}`, text: stateText }),
+      p.name === 'everyday' ? null : profileSwitch(p)),
     el('div', { class: 'sub', text: p.description }),
     el('div', { class: 'srv-form' },
       el('span', { text: 'Model' }), model,
@@ -1092,6 +1106,7 @@ function renderServer(st) {
   document.getElementById('srv-start').disabled = running;
   document.getElementById('srv-stop').disabled = svc.active !== 'active';
 
+  srvDevices = st.devices || [];
   srvGpusEl.innerHTML = '';
   for (const g of st.gpus) {
     const pct = g.totalMiB ? Math.round((g.usedMiB / g.totalMiB) * 100) : 0;
