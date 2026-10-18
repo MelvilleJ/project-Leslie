@@ -249,3 +249,17 @@ test('repair refuses an install setup did not make, and uninstall keeps models u
   await maintain.uninstall({ models: true });
   assert.equal(fs.existsSync(paths.MODELS), false);
 });
+
+test('saving settings and starting services run on every setup run', async () => {
+  fs.rmSync(state.file(), { force: true });
+  let saved = 0;
+  const tasks = () => [
+    { id: 'settings', label: 'settings', deps: [], always: true, run: async () => { saved += 1; } },
+    { id: 'model', label: 'model', deps: [], key: 'm', run: async () => {} }
+  ];
+  await new Runner(tasks()).runAll();
+  const again = await new Runner(tasks()).runAll();
+  assert.equal(saved, 2);
+  assert.equal(again.outcomes.model.status, 'skipped');
+  assert.equal(again.outcomes.settings.status, 'done');
+});

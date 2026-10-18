@@ -165,7 +165,7 @@ function buildTasks(c, ctx = {}) {
   }
 
   // No key: it would put a cloud API key into setup-state.json, and saving is cheap to repeat.
-  add({ id: 'settings', label: 'Saving your preferences',
+  add({ id: 'settings', label: 'Saving your preferences', always: true,
     run: () => ctx.setSettings(settingsFor(c)) });
 
   if (c.startAtLogin && ctx.appExec) {
@@ -177,7 +177,7 @@ function buildTasks(c, ctx = {}) {
   }
 
   if (startDeps.length) {
-    add({ id: 'start', label: 'Starting everything up', deps: startDeps,
+    add({ id: 'start', label: 'Starting everything up', deps: startDeps, always: true,
       run: async (progress) => {
         // The sidecars first: llama.cpp's --fit sizes the model around the GPU memory they hold.
         for (const id of ['vision', 'speech']) {
@@ -217,7 +217,8 @@ async function waitReachable(timeoutMs = 60000) {
  * { type: 'task', id, status, error? } with status running | done | failed |
  * blocked | skipped, and { type: 'progress', id, text, fraction? }.
  * A task whose saved outcome is done for the same key is skipped unless
- * `force` lists it (repair).
+ * `force` lists it (repair) or it is marked `always` (applying settings,
+ * starting services: cheap, and a rerun must not leave the old ones).
  */
 class Runner extends EventEmitter {
   constructor(tasks, { record = true, force = [] } = {}) {
@@ -243,7 +244,7 @@ class Runner extends EventEmitter {
   }
 
   _alreadyDone(task) {
-    if (!this.record || this.force.has(task.id)) return false;
+    if (task.always || !this.record || this.force.has(task.id)) return false;
     const saved = ((state.load() || {}).tasks || {})[task.id];
     return Boolean(saved && saved.status === 'done' && saved.key === JSON.stringify(task.key));
   }
