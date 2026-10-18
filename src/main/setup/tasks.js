@@ -13,6 +13,7 @@
 //   vision    { enabled, runtime: 'cuda' | 'cpu' }
 //   speech    { enabled, runtime: 'cuda' | 'cpu' }
 //   settings  LESLIE settings to apply (configStore keys)
+//   persona   { preset, name, address, custom } for the system prompt
 //   launcher, startAtLogin  booleans
 //   adopt     keep an existing hand-built install as it is
 
@@ -27,6 +28,7 @@ const sidecars = require('./sidecars');
 const units = require('./units');
 const packages = require('./packages');
 const desktop = require('./desktop');
+const persona = require('./persona');
 const state = require('./state');
 const { download } = require('./download');
 const { which } = require('./exec');
@@ -68,6 +70,7 @@ function writeUnit(name, text) {
 /** LESLIE settings implied by the choices, on top of choices.settings. */
 function settingsFor(c) {
   const out = { ...(c.settings || {}) };
+  if (c.persona && !out.systemPrompt) out.systemPrompt = persona.systemPrompt(c.persona);
   if (c.engine.mode === 'remote') Object.assign(out, { serverManaged: false, baseURL: c.engine.url });
   else Object.assign(out, { serverManaged: true });
   if (c.speech && c.speech.enabled) Object.assign(out, { sttBackend: 'server', sttServerUrl: `http://127.0.0.1:${units.PORTS.speech}/v1` });

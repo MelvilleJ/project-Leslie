@@ -17,6 +17,7 @@ const config = require('./config');
 const settings = require('./settings');
 const memory = require('./memory');
 const configStore = require('./configStore');
+const setup = require('./setup');
 const sysmon = require('./sysmon');
 const helpers = require('./helpers');
 const animations = require('./animations');
@@ -1303,6 +1304,12 @@ app.whenReady().then(() => {
   if (config.planMode || !config.agentMode) config.taskMode = false;
 
   configStore.applyPersisted();
+  // First launch (or a setup left part-way): only the setup window, which
+  // restarts LESLIE once everything is in place.
+  if (setup.shouldRun()) {
+    setup.open();
+    return;
+  }
   contextWindow.refresh();
   permissions.init({ icon: APP_ICON });
   forwardPiEvents();
@@ -1318,6 +1325,8 @@ app.whenReady().then(() => {
   wardrobe.watchSchedule(broadcastAnimations);
   if (config.voiceEnabled) createVoiceWindow();
   createTray();
+  const settingsArg = process.argv.find((a) => a.startsWith('--show-settings='));
+  if (settingsArg) showSettingsWindow(settingsArg.slice('--show-settings='.length));
   tts.onEnabled((on) => {
     toCompanion('tts:enabled', on);
     toSettings('settings:config-changed', { key: 'ttsEnabled', value: on });

@@ -59,12 +59,14 @@ const SCHEMA = [
   { key: 'searchResults', type: 'number', group: 'Behaviour', label: 'Search results fed back',
     min: 1, max: 20, step: 1 },
 
+  { key: 'voiceEnabled', type: 'boolean', group: 'Voice', label: 'Listen for the wake word',
+    help: 'Takes effect after restarting LESLIE.' },
   { key: 'sttBackend', type: 'select', group: 'Voice', label: 'Speech recognition',
     options: [
-      { value: 'server', label: 'Whisper server (large-v3-turbo on the GPU)' },
+      { value: 'server', label: 'Speech server (leslie-speech or whisper.cpp)' },
       { value: 'local', label: 'In-app Whisper (small model, CPU)' }
     ],
-    help: 'The server is set up by scripts/setup-whisper.sh (leslie-whisper service).' },
+    help: 'Setup installs the leslie-speech service; scripts/setup-whisper.sh builds whisper.cpp instead.' },
   { key: 'sttServerUrl', type: 'string', group: 'Voice', label: 'Speech server URL',
     dependsOn: { key: 'sttBackend', value: 'server' },
     help: 'OpenAI-style endpoint, including /v1.' },

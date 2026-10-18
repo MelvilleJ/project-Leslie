@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; media-src 'self' mediastream:;" />
+  <title>Set up LESLIE</title>
+  <link rel="stylesheet" href="theme.css" />
+  <link rel="stylesheet" href="setup.css" />
+</head>
+<body>
+  <div id="shell">
+    <nav id="rail" aria-label="Setup steps">
+      <div id="brand"><img src="../../assets/icons/leslie-64.png" alt="" /> <span>LESLIE</span></div>
+      <ol id="steps"></ol>
+    </nav>
+    <main id="main">
+      <section id="screen" aria-live="polite"></section>
+      <footer id="footer">
+        <button id="back" class="btn" type="button">Back</button>
+        <span id="hint"></span>
+        <button id="next" class="btn primary" type="button">Next</button>
+      </footer>
+    </main>
+  </div>
+  <script src="setup.js"></script>
+</body>
+</html>
