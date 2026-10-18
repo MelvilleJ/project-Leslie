@@ -39,6 +39,7 @@ const BRIDGED = {
 };
 
 const PI_READ_TOOLS = ['read', 'grep', 'find', 'ls'];
+const SEARCH_TOOLS = ['web_search', 'deep_search', 'deep_research', 'open_search'];
 // Everything a helper Leslie may use: looking things up, never changing anything.
 const HELPER_BRIDGED = ['web_search', 'deep_search', 'read_page', 'report', 'read_document', 'doc_list', 'doc_read'];
 const PI_WRITE_TOOLS = ['bash', 'edit', 'write'];
@@ -63,6 +64,7 @@ function bridgedAllowed() {
       if (t.name === 'remember') return config.learningMode;
       if (t.name.startsWith('doc_')) return docs.enabled();
       if (t.name === 'delegate') return helpers().available();
+      if (SEARCH_TOOLS.includes(t.name)) return Boolean(config.searxngUrl);
       return true;
     })
     .filter((t) => !config.planMode || t.readOnly || PLAN_DOC_TOOLS.includes(t.name))
@@ -96,6 +98,7 @@ function helperAllowed() {
   const bridged = HELPER_BRIDGED.filter((name) => {
     if (name === 'read_document') return config.fsReadEnabled;
     if (name.startsWith('doc_')) return docs.enabled();
+    if (SEARCH_TOOLS.includes(name)) return Boolean(config.searxngUrl);
     return true;
   }).filter((name) => !presence.restricted() || !GUEST_BLOCKED.includes(name));
   return [...(presence.restricted() ? [] : pi), ...bridged];

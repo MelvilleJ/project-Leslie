@@ -2,8 +2,8 @@
 
 // Drives the shared llama.cpp router (the llama-router user service, set up by
 // scripts/setup-llama-router.sh and usable by any app) and switches between two
-// model profiles: "everyday" (fits the RTX 3060 alone, loaded at
-// login) and "power" (split across both GPUs). Either profile can opt into stopping
+// model profiles: "everyday" (loaded at login) and "power" (the strongest model,
+// usually across every GPU). Either profile can opt into stopping
 // speech recognition with stopsWhisper. No Electron dependencies, so the terminal TUI
 // (bin/leslie-server) shares it.
 
@@ -26,15 +26,17 @@ const DEFAULTS = {
   modelsDir: path.join(os.homedir(), 'models'),
   host: '127.0.0.1',
   port: 8080,
-  threads: 6,
+  // Roughly the physical core count.
+  threads: Math.max(1, Math.floor(os.availableParallelism() / 2)),
   profiles: {
+    // Blank devices = every GPU llama.cpp finds; --fit sizes the offload to them.
     everyday: {
       label: 'Everyday',
-      description: 'RTX 3060 only — quick everyday tasks, loaded at login',
-      model: 'gpt-oss-20b-unsloth',
-      devices: 'CUDA0',
+      description: 'Quick everyday tasks, loaded at login',
+      model: '',
+      devices: '',
       tensorSplit: '',
-      ctx: 65536,
+      ctx: 32768,
       cacheType: '',
       specType: '',
       stopsWhisper: false,
@@ -43,17 +45,13 @@ const DEFAULTS = {
     },
     power: {
       label: 'Power',
-      description: 'RTX 3060 + RX 9060 XT — the strongest model',
-      model: 'Qwen3.8-27B-UD-Q4_K_M',
-      devices: 'CUDA0,Vulkan0',
-      // Tuned with whisper stopped: 12,16 overfills the RX once the MTP draft
-      // context is allocated, and anything lower wastes the 3060's bandwidth.
-      tensorSplit: '11,17',
-      ctx: 131072,
-      // q8_0 halves the KV cache, which is what makes 128k fit.
-      cacheType: 'q8_0',
-      // Qwen3.8 ships a multi-token-prediction head; ~1.3-1.9x faster decoding.
-      specType: 'draft-mtp',
+      description: 'The strongest model',
+      model: '',
+      devices: '',
+      tensorSplit: '',
+      ctx: 65536,
+      cacheType: '',
+      specType: '',
       stopsWhisper: false,
       cpuMoeLayers: null
     }
@@ -62,8 +60,8 @@ const DEFAULTS = {
   // ctx is shared by its parallel slots, one per helper.
   helper: {
     label: 'Helpers',
-    model: 'Qwen3.5-4B-Q6_K',
-    devices: 'Vulkan0',
+    model: '',
+    devices: '',
     ctx: 98304,
     parallel: 3,
     cacheType: '',
@@ -78,7 +76,7 @@ const DEFAULTS = {
 const PRESET_FIELDS = ['devices', 'tensorSplit', 'ctx', 'cacheType', 'specType', 'cpuMoeLayers'];
 
 const PRESET_DEFAULTS = {
-  devices: 'CUDA0,Vulkan0',
+  devices: '',
   tensorSplit: '',
   ctx: 32768,
   cacheType: '',
@@ -120,7 +118,7 @@ function saveSettings(patch) {
     if (preset === null) delete next.modelPresets[id];
     else next.modelPresets[id] = cleanPreset({ ...next.modelPresets[id], ...preset });
   }
-  if (next.profiles.everyday.model === next.profiles.power.model) {
+  if (next.profiles.everyday.model && next.profiles.everyday.model === next.profiles.power.model) {
     throw new Error('Everyday and Power need different models.');
   }
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -186,7 +184,9 @@ const NEW_PRESETS = 'version = 1\n\n[*]\njinja = true\n';
 function presetSection(id, profile, entry, loadOnStartup, threads) {
   const lines = [`[${id}]`, MANAGED, `model = ${entry.model}`];
   if (entry.mmproj) lines.push(`mmproj = ${entry.mmproj}`);
-  lines.push(`threads = ${threads}`, `device = ${profile.devices}`, `ctx-size = ${profile.ctx}`);
+  lines.push(`threads = ${threads}`);
+  if (profile.devices) lines.push(`device = ${profile.devices}`);
+  lines.push(`ctx-size = ${profile.ctx}`);
   if (profile.tensorSplit) lines.push(`tensor-split = ${profile.tensorSplit}`);
   if (profile.cpuMoeLayers > 0) lines.push(`n-cpu-moe = ${profile.cpuMoeLayers}`);
   if (profile.parallel > 1) lines.push(`parallel = ${profile.parallel}`);
@@ -393,6 +393,7 @@ async function switchProfile(profile, onProgress = () => {}) {
   const settings = loadSettings();
   const target = settings.profiles[profile];
   if (!target) throw new Error(`Unknown profile ${profile}`);
+  if (!target.model) throw new Error(`No model is chosen for ${target.label} yet (Settings → Models & GPUs).`);
   const models = await routerModels();
   if (!models.some((m) => m.id === target.model)) throw new Error(`${target.model} is not in ${settings.modelsDir}`);
   for (const m of models) {

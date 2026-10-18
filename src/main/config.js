@@ -49,14 +49,15 @@ module.exports = {
   serverManaged: env.LESLIE_SERVER_MANAGED !== '0',
 
   // Hyprland monitor the companion lives on (see `hyprctl monitors`); blank = anywhere.
-  homeMonitor: env.LESLIE_HOME_MONITOR ?? 'HDMI-A-1',
+  homeMonitor: env.LESLIE_HOME_MONITOR || '',
 
-  // Monitor that screen_record / screenshot capture, and the VAAPI render node
-  // wf-recorder hardware-encodes on (renderD128 = the Radeon).
-  recordMonitor: env.LESLIE_RECORD_MONITOR || 'DP-1',
-  recordRenderNode: env.LESLIE_RECORD_RENDER_NODE || '/dev/dri/renderD128',
+  // Monitor that screen_record / screenshot capture (blank = the focused one), and
+  // the VAAPI render node wf-recorder hardware-encodes on (blank = detected).
+  recordMonitor: env.LESLIE_RECORD_MONITOR || '',
+  recordRenderNode: env.LESLIE_RECORD_RENDER_NODE || '',
 
-  baseURL: env.LESLIE_BASE_URL || 'http://192.168.100.224:8081/v1',
+  // Only used when the model server isn't managed; the managed one sets it.
+  baseURL: env.LESLIE_BASE_URL || '',
 
   model: env.LESLIE_MODEL || 'local-model',
 
@@ -89,7 +90,8 @@ module.exports = {
   // Minutes without a message from the user before the chat starts fresh; 0 = never.
   idleResetMinutes: Number(env.LESLIE_IDLE_RESET_MINUTES ?? 30),
 
-  searxngUrl: env.LESLIE_SEARXNG_URL || 'http://192.168.100.226:8080',
+  // Blank turns off the search tools.
+  searxngUrl: env.LESLIE_SEARXNG_URL || '',
   searchResults: Number(env.LESLIE_SEARCH_RESULTS ?? 5),
 
   deepSearchPages: Number(env.LESLIE_DEEP_SEARCH_PAGES ?? 3),
@@ -135,7 +137,8 @@ module.exports = {
 
   // --- Camera presence (scripts/setup-vision.sh runs the leslie-vision sidecar) ---
   cameraEnabled: env.LESLIE_CAMERA === '1',
-  cameraDevice: env.LESLIE_CAMERA_DEVICE || '/dev/v4l/by-id/usb-UGREEN_Camera_2K_UGREEN_Camera_2K_SN0001-video-index0',
+  // Blank = the first camera the vision service finds.
+  cameraDevice: env.LESLIE_CAMERA_DEVICE || '',
   cameraServerUrl: env.LESLIE_CAMERA_SERVER_URL || 'http://127.0.0.1:8179',
   cameraArriveSec: Number(env.LESLIE_CAMERA_ARRIVE_SEC ?? 3),
   cameraLeaveSec: Number(env.LESLIE_CAMERA_LEAVE_SEC ?? 120),

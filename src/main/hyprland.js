@@ -154,4 +154,13 @@ function watch(title, onChange) {
   connect();
 }
 
-module.exports = { available, pinToMonitor, focusedWindow, watch };
+async function focusedMonitor() {
+  if (!available()) return null;
+  try {
+    return ((await json('monitors')).find((m) => m.focused) || {}).name || null;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { available, pinToMonitor, focusedWindow, focusedMonitor, watch };

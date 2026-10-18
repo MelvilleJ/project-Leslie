@@ -24,8 +24,20 @@ function fixture() {
   add('Qwen3.8-27B-UD-Q4_K_M/Qwen3.8-27B-UD-Q4_K_M.gguf');
   add('Qwen3.8-27B-UD-Q4_K_M/mmproj-BF16.gguf');
   add('other-model/other-model.gguf');
-  const settings = { ...loadSettings(), modelsDir, presetsFile: path.join(modelsDir, 'presets.ini') };
-  return settings;
+  const defaults = loadSettings();
+  const profiles = {
+    everyday: { ...defaults.profiles.everyday, model: 'gpt-oss-20b-unsloth', devices: 'CUDA0', ctx: 65536 },
+    power: {
+      ...defaults.profiles.power,
+      model: 'Qwen3.8-27B-UD-Q4_K_M',
+      devices: 'CUDA0,Vulkan0',
+      tensorSplit: '11,17',
+      ctx: 131072,
+      cacheType: 'q8_0'
+    }
+  };
+  const helper = { ...defaults.helper, model: 'Qwen3.5-4B-Q6_K', devices: 'Vulkan0' };
+  return { ...defaults, profiles, helper, modelsDir, presetsFile: path.join(modelsDir, 'presets.ini') };
 }
 
 const section = (text, id) => {
@@ -92,4 +104,24 @@ test('the helper model gets its own preset on the second GPU, with parallel slot
   assert.match(helper, /device = Vulkan0\n/);
   assert.match(helper, /ctx-size = 98304\nparallel = 3/);
   assert.doesNotMatch(helper, /load-on-startup/);
+});
+
+test('a fresh install names no models or GPUs, and writes nothing for them', () => {
+  const { profiles } = loadSettings();
+  for (const p of Object.values(profiles)) {
+    assert.equal(p.model, '');
+    assert.equal(p.devices, '');
+  }
+  const settings = { ...fixture(), profiles };
+  assert.equal(writePresets(settings), false);
+  assert.equal(fs.existsSync(settings.presetsFile), false);
+});
+
+test('blank devices leave the device line out so llama.cpp uses every GPU', () => {
+  const settings = fixture();
+  settings.profiles.everyday = { ...settings.profiles.everyday, devices: '' };
+  writePresets(settings);
+  const everyday = section(fs.readFileSync(settings.presetsFile, 'utf8'), 'gpt-oss-20b-unsloth');
+  assert.doesNotMatch(everyday, /^device =/m);
+  assert.match(everyday, /ctx-size = 65536/);
 });

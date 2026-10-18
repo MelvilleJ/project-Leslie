@@ -1009,8 +1009,8 @@ const PI_COMMAND_META = [
   { name: 'reload', usage: '/reload', desc: 'Restart pi (reload extensions, skills, settings)' }
 ];
 const COMMAND_META = [
-  { name: 'everyday', usage: '/everyday', desc: 'Load the Everyday model (RTX 3060)' },
-  { name: 'power', usage: '/power', desc: 'Load the Power model (both GPUs)' },
+  { name: 'everyday', usage: '/everyday', desc: 'Load the Everyday model' },
+  { name: 'power', usage: '/power', desc: 'Load the Power model' },
   { name: 'server', usage: '/server', desc: 'Model server, profiles and GPUs' },
   { name: 'research', usage: '/research <question>', desc: 'Deep multi-source research → cited report' },
   { name: 'mode', usage: '/mode chat|plan|agent', desc: 'Switch operating mode' },
@@ -1704,7 +1704,7 @@ async function serverProfiles() {
     .filter((p) => p.state !== 'missing')
     .map((p) => ({
       label: `${p.name === 'power' ? '⚡' : '🌙'} ${p.label} — ${p.model}`,
-      detail: p.devices.includes(',') ? 'both GPUs' : p.devices === 'CUDA0' ? 'RTX 3060' : p.devices,
+      detail: !p.devices ? 'every GPU' : p.devices.includes(',') ? 'several GPUs' : p.devices,
       selected: res.data.activeProfile === p.name,
       value: { profile: p.name }
     }));

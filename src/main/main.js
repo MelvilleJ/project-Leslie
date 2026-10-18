@@ -244,8 +244,8 @@ function buildTrayMenu() {
     {
       label: 'Model',
       submenu: [
-        { label: 'Everyday (RTX 3060)', type: 'radio', checked: trayProfile === 'everyday', click: () => switchProfileFromTray('everyday') },
-        { label: 'Power (both GPUs)', type: 'radio', checked: trayProfile === 'power', click: () => switchProfileFromTray('power') },
+        { label: 'Everyday', type: 'radio', checked: trayProfile === 'everyday', click: () => switchProfileFromTray('everyday') },
+        { label: 'Power', type: 'radio', checked: trayProfile === 'power', click: () => switchProfileFromTray('power') },
         { type: 'separator' },
         { label: 'Models & GPUs…', click: () => showSettingsWindow('server') }
       ]

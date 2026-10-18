@@ -939,10 +939,17 @@ const srvLogEl = document.getElementById('srv-log');
 const srvEnabled = document.getElementById('srv-enabled');
 
 const DEVICE_OPTIONS = [
-  { value: 'CUDA0', label: 'RTX 3060 only' },
-  { value: 'CUDA0,Vulkan0', label: 'Both GPUs' },
-  { value: 'Vulkan0', label: 'Radeon only' }
+  { value: '', label: 'Automatic (every GPU)' },
+  { value: 'CUDA0', label: 'First NVIDIA GPU (CUDA0)' },
+  { value: 'Vulkan0', label: 'First Vulkan GPU (Vulkan0)' },
+  { value: 'CUDA0,Vulkan0', label: 'NVIDIA + Vulkan GPU (CUDA0,Vulkan0)' }
 ];
+
+// Keeps a saved device list the menu doesn't know (e.g. Vulkan1) instead of
+// showing the first option and overwriting it on save.
+function deviceOptions(current) {
+  return DEVICE_OPTIONS.some((o) => o.value === (current || '')) ? DEVICE_OPTIONS : [...DEVICE_OPTIONS, { value: current, label: current }];
+}
 const CTX_OPTIONS = [8192, 16384, 32768, 65536, 131072, 262144];
 const CACHE_OPTIONS = [
   { value: '', label: 'f16 (default)' },
@@ -975,7 +982,7 @@ function renderProfile(p, st) {
   const active = st.activeProfile === p.name;
   const stateText = { loaded: 'loaded', loading: 'loading…', unloaded: 'not loaded', missing: 'model missing' }[p.state] || p.state;
   const model = select(srvModels.map((m) => ({ value: m.id, label: `${m.id} (${(m.bytes / 1e9).toFixed(1)} GB)` })), p.model);
-  const devices = select(DEVICE_OPTIONS, p.devices);
+  const devices = select(deviceOptions(p.devices), p.devices);
   const split = el('input', { type: 'text', value: p.tensorSplit || '', placeholder: 'e.g. 12,16' });
   const ctx = select(CTX_OPTIONS.map((n) => ({ value: n, label: `${n / 1024}k tokens` })), p.ctx);
   const moe = el('input', { type: 'number', min: 0, max: 64, placeholder: 'auto', value: p.cpuMoeLayers ?? '' });
@@ -1018,7 +1025,7 @@ function renderProfile(p, st) {
 }
 
 function renderPreset(id, preset, st) {
-  const devices = select(DEVICE_OPTIONS, preset.devices);
+  const devices = select(deviceOptions(preset.devices), preset.devices);
   const split = el('input', { type: 'text', value: preset.tensorSplit || '', placeholder: 'e.g. 11,17' });
   const ctx = select(CTX_OPTIONS.map((n) => ({ value: n, label: `${n / 1024}k tokens` })), preset.ctx);
   const cache = select(CACHE_OPTIONS, preset.cacheType);

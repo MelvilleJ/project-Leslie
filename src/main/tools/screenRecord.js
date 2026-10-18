@@ -10,6 +10,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const config = require('../config');
+const hyprland = require('../hyprland');
 
 const STARTUP_CHECK_MS = 1500;
 const STOP_TIMEOUT_MS = 8000;
@@ -45,10 +46,22 @@ function audioSource(kind) {
   }
 }
 
-// Hardware encode on the first VAAPI render node; wf-recorder picks the codec.
+// NVIDIA's driver has no VAAPI, so the default is the first render node on another GPU.
+function renderNode() {
+  if (config.recordRenderNode) return config.recordRenderNode;
+  try {
+    for (const node of fs.readdirSync('/sys/class/drm').filter((d) => /^renderD\d+$/.test(d)).sort()) {
+      if (fs.readFileSync(`/sys/class/drm/${node}/device/vendor`, 'utf8').trim() !== '0x10de') return `/dev/dri/${node}`;
+    }
+  } catch {
+  }
+  return null;
+}
+
 function encoderArgs(hardware) {
-  if (!hardware) return ['-c', 'libx264', '-p', 'preset=veryfast', '-p', 'crf=23'];
-  return ['-c', 'h264_vaapi', '-d', config.recordRenderNode];
+  const node = hardware && renderNode();
+  if (!node) return ['-c', 'libx264', '-p', 'preset=veryfast', '-p', 'crf=23'];
+  return ['-c', 'h264_vaapi', '-d', node];
 }
 
 function publish() {
@@ -57,7 +70,7 @@ function publish() {
 
 /** Spawn wf-recorder; resolves once it has survived the first moments (bad encoders die fast). */
 function spawnRecorder(file, monitor, audio, hardware) {
-  const args = ['-o', monitor, '-f', file, '-y', ...encoderArgs(hardware)];
+  const args = [...(monitor ? ['-o', monitor] : []), '-f', file, '-y', ...encoderArgs(hardware)];
   if (audio) args.push(`--audio=${audio}`);
   return new Promise((resolve, reject) => {
     let stderr = '';
@@ -80,7 +93,7 @@ function spawnRecorder(file, monitor, audio, hardware) {
 async function start({ audio = 'desktop' } = {}) {
   if (rec) return { recording: true, already: true, file: rec.file };
   if (process.platform !== 'linux') throw new Error('Screen recording is only set up for Linux/Wayland.');
-  const monitor = config.recordMonitor;
+  const monitor = config.recordMonitor || (await hyprland.focusedMonitor());
   const file = outputFile();
   const source = audioSource(audio);
   let child;

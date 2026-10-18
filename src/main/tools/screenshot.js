@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const config = require('../config');
+const hyprland = require('../hyprland');
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -81,7 +82,8 @@ module.exports = {
     } else if (target === 'all') {
       await run('grim', [file]);
     } else {
-      await run('grim', ['-o', config.recordMonitor, file]);
+      const monitor = config.recordMonitor || (await hyprland.focusedMonitor());
+      await run('grim', monitor ? ['-o', monitor, file] : [file]);
     }
     const copied = copyToClipboard(file);
     return { saved: true, file, copiedToClipboard: copied };
