@@ -23,7 +23,10 @@ function planModeDirective(liveDocs) {
     `other than markdown in the live docs folder (${config.liveDocsDir}).`,
     'When you have enough understanding, write the plan as a live doc with doc_create (or doc_edit to',
     'revise one): a one-line goal, then numbered steps concrete enough to carry out later (the exact',
-    'commands, files and settings). The doc gets an Approve button, and the user may edit it first.',
+    'commands, files and settings). When the plan has a flow, an architecture or parts that depend on',
+    'each other, add one small diagram as a ```mermaid block (e.g. flowchart LR, subgraph for groups,',
+    'short node labels in [brackets]); the doc draws it. Skip diagrams for simple step lists.',
+    'The doc gets an Approve button, and the user may edit it first.',
     'Then STOP: reply in one or two sentences pointing to the doc. Do not carry out any step yourself;',
     'approving it switches you to agent mode and sends you the plan to carry out.'
   ].join(' ');

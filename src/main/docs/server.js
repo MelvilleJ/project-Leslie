@@ -10,7 +10,8 @@ const WEB = path.join(__dirname, '..', '..', 'docs-web');
 const STATIC = {
   'app.js': [path.join(WEB, 'app.js'), 'text/javascript'],
   'app.css': [path.join(WEB, 'app.css'), 'text/css'],
-  'markdown.js': [path.join(__dirname, '..', '..', 'renderer', 'markdown.js'), 'text/javascript']
+  'markdown.js': [path.join(__dirname, '..', '..', 'renderer', 'markdown.js'), 'text/javascript'],
+  'mermaid.js': [require.resolve('mermaid/dist/mermaid.min.js'), 'text/javascript']
 };
 const MAX_BODY = 4 * 1024 * 1024;
 

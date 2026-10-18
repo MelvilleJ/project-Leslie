@@ -188,3 +188,10 @@ test('a plan can be approved once, and its state survives a restart', async () =
   assert.equal(reopened.get('Move dotfiles').plan.status, 'done');
   assert.equal(reopened.get('Move dotfiles').plan.note, 'Copied them.');
 });
+
+test('code fences keep their language so the docs page can draw mermaid', () => {
+  const { render } = require('../src/renderer/markdown');
+  assert.match(render('```mermaid\nflowchart LR\n  A-->B\n```'), /<code class="language-mermaid">flowchart LR\n {2}A--&gt;B<\/code>/);
+  assert.match(render('```\nplain\n```'), /<pre><code>plain<\/code><\/pre>/);
+  assert.match(render('```bad"lang\nx\n```'), /<code class="language-bad">/);
+});

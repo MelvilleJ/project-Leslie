@@ -82,6 +82,7 @@
     "exceljs": "^4.4.0",
     "imapflow": "^2.4.0",
     "kokoro-js": "^1.2.1",
+    "mermaid": "11.17.2",
     "pdf-parse": "^1.1.1",
     "pdfkit": "^0.19.1",
     "pg": "^8.23.1"

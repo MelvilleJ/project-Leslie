@@ -9,6 +9,10 @@ function openInBrowser(name, ctx) {
   if (!docs.isOpen(name) && typeof ctx.openUrl === 'function') ctx.openUrl(docs.url(name));
 }
 
+const DIAGRAM_NUDGE =
+  'No diagram yet. If the plan has a flow, an architecture or parts that depend on each other, add one now with ' +
+  'doc_edit insert after the steps: a ```mermaid block such as "flowchart LR" with short [labels]. Skip it for a simple list.';
+
 // A doc written or revised in plan mode is the plan: it gets the Approve button.
 function markPlan(store, name) {
   if (config.planMode && store.get(name).plan?.status !== 'proposed') store.setPlan(name, 'proposed');
@@ -64,7 +68,8 @@ const docCreate = {
     'Create a live doc and open it in the browser, where the user watches it fill and can edit it with you. ' +
     'For anything you will write in steps (research, long sections), put the title and one placeholder line per ' +
     'section, "<!-- pending: Section: what will go here -->", then fill each with doc_edit replace, one section per call. ' +
-    'Prefer this over create_document when the user wants a doc to work on together.',
+    'Prefer this over create_document when the user wants a doc to work on together. ' +
+    'For a plan, add a ```mermaid diagram (e.g. "flowchart LR") when it has a flow or parts that depend on each other; the doc draws it.',
   parameters: {
     type: 'object',
     properties: {
@@ -78,7 +83,8 @@ const docCreate = {
     const view = store.create(title, markdown || `# ${title}\n`);
     markPlan(store, view.name);
     openInBrowser(view.name, ctx);
-    return `Created and opened${config.planMode ? ' as a plan with an Approve button' : ''}.\n\n${docs.outline(store.readForLeslie(view.name))}`;
+    const nudge = config.planMode && !/```mermaid/.test(markdown || '') ? `\n\n${DIAGRAM_NUDGE}` : '';
+    return `Created and opened${config.planMode ? ' as a plan with an Approve button' : ''}.\n\n${docs.outline(store.readForLeslie(view.name))}${nudge}`;
   }
 };
 

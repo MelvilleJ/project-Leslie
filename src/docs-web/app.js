@@ -144,6 +144,94 @@ function renderMarkdown(text) {
   return window.markdown.render(text.replace(PENDING_LINE, (_m, intent) => `*Pending: ${intent}*`));
 }
 
+// --- diagrams ---------------------------------------------------------------
+
+const LIGHT = window.matchMedia('(prefers-color-scheme: light)');
+let mermaidLoad = null;
+let drawing = Promise.resolve();
+let diagramSeq = 0;
+// Colours a model picks rarely suit the theme (pastel fills under light text), so the theme decides.
+const DIAGRAM_STYLING = /^\s*(style|classDef|class|linkStyle)\s.*$/gm;
+
+// About 3.5 MB, so only fetched once a doc actually has a diagram.
+function loadMermaid() {
+  mermaidLoad ??= new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = '/static/mermaid.js';
+    script.onload = () => resolve(window.mermaid);
+    script.onerror = () => {
+      mermaidLoad = null;
+      reject(new Error('Could not load the diagram renderer.'));
+    };
+    document.head.append(script);
+  });
+  return mermaidLoad;
+}
+
+function setupMermaid(mermaid) {
+  const css = getComputedStyle(document.documentElement);
+  const v = (name) => css.getPropertyValue(name).trim();
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    suppressErrorRendering: true,
+    theme: 'base',
+    fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+    themeVariables: {
+      darkMode: !LIGHT.matches,
+      background: v('--bg'),
+      primaryColor: v('--raised'),
+      primaryBorderColor: v('--accent'),
+      primaryTextColor: v('--text'),
+      secondaryColor: v('--surface'),
+      tertiaryColor: v('--surface'),
+      lineColor: v('--dim'),
+      textColor: v('--text'),
+      clusterBkg: v('--surface'),
+      clusterBorder: v('--dim'),
+      edgeLabelBackground: v('--surface')
+    }
+  });
+}
+
+/** Swaps each ```mermaid block under `root` for its drawing; a broken one stays as text with the error under it. */
+function drawDiagrams(root) {
+  const sources = [...root.querySelectorAll('pre > code.language-mermaid')];
+  if (!sources.length) return;
+  drawing = drawing.then(async () => {
+    let mermaid;
+    try {
+      mermaid = await loadMermaid();
+    } catch (err) {
+      toast(err.message);
+      return;
+    }
+    setupMermaid(mermaid);
+    for (const code of sources) {
+      const pre = code.parentElement;
+      if (!pre.isConnected) continue;
+      try {
+        const { svg } = await mermaid.render(`diagram-${++diagramSeq}`, code.textContent.replace(DIAGRAM_STYLING, ''));
+        const figure = el('figure', 'diagram');
+        figure.innerHTML = svg;
+        pre.replaceWith(figure);
+      } catch (err) {
+        const lines = String(err.message || err).split('\n').filter((l) => l.trim());
+        const why = lines.length > 1 ? `${lines[0]} ${lines[lines.length - 1]}` : lines[0] || '';
+        pre.after(el('p', 'diagram-error', `This diagram has a mistake, so it is shown as text. ${why}`));
+      }
+    }
+  });
+}
+
+function redrawDiagrams() {
+  if (!doc) return;
+  for (const block of doc.blocks) {
+    const node = blockEls.get(block.id);
+    if (node && node.querySelector('.diagram, .diagram-error') && !(edit && edit.id === block.id)) paint(node, block);
+  }
+}
+
 function highlightQuotes(render, blockId) {
   for (const t of doc.threads) {
     if (t.resolved || t.blockId !== blockId || !t.quote) continue;
@@ -171,6 +259,7 @@ function paint(blockEl, block) {
   }
   render.innerHTML = window.markdown.render(block.text);
   highlightQuotes(render, block.id);
+  drawDiagrams(render);
 }
 
 function makeBlockEl(id) {
@@ -322,6 +411,7 @@ function finishEdit() {
   if (block && block.text === text) paint(e.node, block);
   else {
     render.innerHTML = renderMarkdown(text);
+    drawDiagrams(render);
     e.node.dataset.h = '';
   }
 }
@@ -642,6 +732,7 @@ async function openHistory() {
         try {
           const text = await api(docPath(`/history/${v.id}`), { raw: true });
           $('versionPreview').innerHTML = `<div class="render">${renderMarkdown(text)}</div>`;
+          drawDiagrams($('versionPreview'));
           restore.disabled = false;
           restore.onclick = async () => {
             await api(docPath(`/history/${v.id}/restore`), { method: 'POST' });
@@ -692,6 +783,7 @@ function startDoc() {
   $('downloadBtn').onclick = download;
   $('approvePlan').addEventListener('mousedown', (e) => e.preventDefault());
   $('approvePlan').onclick = approvePlan;
+  LIGHT.addEventListener('change', redrawDiagrams);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && edit && edit.dirty) queueSave(edit);
   });
