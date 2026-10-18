@@ -1,5 +1,6 @@
 'use strict';
 
+const { safeStorage } = require('electron');
 const config = require('./config');
 const settings = require('./settings');
 const { VOICES } = require('./tts/voices');
@@ -139,20 +140,38 @@ function snapshot() {
   return out;
 }
 
+// Passwords go through the desktop keyring (libsecret / kwallet) when there is one.
+function seal(field, value) {
+  if (field.type !== 'password' || !value || !safeStorage.isEncryptionAvailable()) return value;
+  return { sealed: safeStorage.encryptString(value).toString('base64') };
+}
+
+function unseal(stored) {
+  if (!stored || typeof stored !== 'object' || !stored.sealed) return stored;
+  try {
+    return safeStorage.decryptString(Buffer.from(stored.sealed, 'base64'));
+  } catch {
+    return '';
+  }
+}
+
 function set(key, value) {
   const field = BY_KEY.get(key);
   if (!field) return { ok: false, error: `Unknown setting: ${key}` };
   const v = coerce(field, value);
   config[key] = v;
-  settings.set(`cfg.${key}`, v);
+  settings.set(`cfg.${key}`, seal(field, v));
   return { ok: true, key, value: v };
 }
 
-/** Re-apply persisted overrides onto config at startup (over the .env defaults). */
+/** Re-apply persisted overrides onto config at startup (over the .env defaults). Needs the app to be ready. */
 function applyPersisted() {
   for (const f of SCHEMA) {
     const stored = settings.get(`cfg.${f.key}`, undefined);
-    if (stored !== undefined) config[f.key] = coerce(f, stored);
+    if (stored === undefined) continue;
+    config[f.key] = coerce(f, unseal(stored));
+    // Saved before passwords were sealed.
+    if (f.type === 'password' && typeof stored === 'string' && stored) settings.set(`cfg.${f.key}`, seal(f, stored));
   }
 }
 
