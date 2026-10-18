@@ -5,9 +5,9 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 /** Run a program; never rejects. ok is false when it fails to start or exits non-zero. */
-function run(cmd, args = [], { timeout = 60000, env, cwd } = {}) {
+function run(cmd, args = [], { timeout = 60000, env, cwd, signal } = {}) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout, env: env && { ...process.env, ...env }, cwd, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) =>
+    execFile(cmd, args, { timeout, signal, env: env && { ...process.env, ...env }, cwd, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) =>
       resolve({ ok: !err, code: err ? err.code : 0, stdout: String(stdout || ''), stderr: String(stderr || '') })
     );
   });

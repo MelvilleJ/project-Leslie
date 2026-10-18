@@ -66,7 +66,7 @@ async function install(build, { onProgress = () => {}, signal } = {}) {
   onProgress({ text: 'Unpacking the engine' });
   fs.rmSync(staging, { recursive: true, force: true });
   fs.mkdirSync(staging, { recursive: true });
-  for (const file of spec.files) await must('tar', ['-xzf', path.join(archives, file.name), '-C', staging], { timeout: 300000 });
+  for (const file of spec.files) await must('tar', ['-xzf', path.join(archives, file.name), '-C', staging], { timeout: 300000, signal });
   const server = findServer(staging);
   if (!server) throw new Error('The engine archive has no llama-server in it.');
   const serverDir = path.dirname(server);

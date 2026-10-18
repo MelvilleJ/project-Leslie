@@ -55,11 +55,11 @@ async function installVenv(name, runtime, conflicting, { onProgress = () => {}, 
   const venv = path.join(paths.SIDECARS, name);
   const env = { VIRTUAL_ENV: venv };
   onProgress({ text: `Preparing Python for ${name}` });
-  await must(uv, ['venv', '-q', '--allow-existing', '--python', PYTHON, venv], { timeout: 600000 });
-  if (conflicting.length) await run(uv, ['pip', 'uninstall', '-q', ...conflicting], { env });
+  await must(uv, ['venv', '-q', '--allow-existing', '--python', PYTHON, venv], { timeout: 600000, signal });
+  if (conflicting.length) await run(uv, ['pip', 'uninstall', '-q', ...conflicting], { env, signal });
   onProgress({ text: `Installing the ${name} service (${runtime === 'cuda' ? 'GPU' : 'CPU'}), this can take a few minutes` });
   const src = stageSource(name);
-  await must(uv, ['pip', 'install', '-q', '--reinstall-package', `leslie-${name}`, `${src}[${runtime}]`], { env, timeout: 30 * 60000 });
+  await must(uv, ['pip', 'install', '-q', '--reinstall-package', `leslie-${name}`, `${src}[${runtime}]`], { env, timeout: 30 * 60000, signal });
   return venv;
 }
 
@@ -84,7 +84,7 @@ async function installVision(runtime, { onProgress = () => {}, signal } = {}) {
       onProgress: ({ done, total }) => onProgress({ text: 'Downloading the face models', done, total })
     });
     const out = path.join(dir, 'buffalo_l');
-    await must(path.join(venv, 'bin', 'python'), ['-I', '-m', 'zipfile', '-e', zip, out], { timeout: 300000 });
+    await must(path.join(venv, 'bin', 'python'), ['-I', '-m', 'zipfile', '-e', zip, out], { timeout: 300000, signal });
     for (const f of missing) {
       const found = fs.readdirSync(out, { recursive: true }).find((p) => path.basename(String(p)) === f.name);
       if (!found) throw new Error(`${f.name} is missing from the face model archive.`);
@@ -102,7 +102,7 @@ async function installSpeech(runtime, { onProgress = () => {}, signal } = {}) {
   const venv = await installVenv('speech', runtime, [], { onProgress, signal });
   const dir = path.join(paths.MODELS, 'speech');
   onProgress({ text: 'Downloading the Whisper model' });
-  await must(path.join(venv, 'bin', 'leslie-speech'), ['--download-only', '--device', runtime, '--models', dir], { timeout: 30 * 60000 });
+  await must(path.join(venv, 'bin', 'leslie-speech'), ['--download-only', '--device', runtime, '--models', dir], { timeout: 30 * 60000, signal });
   return { venv, modelsDir: dir };
 }
 
