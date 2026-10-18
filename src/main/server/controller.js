@@ -102,7 +102,9 @@ async function followServer() {
   following = true;
   try {
     const helperModel = server.loadSettings().helper.model;
-    const loaded = (await server.routerModels()).find((m) => m.status === 'loaded' && m.id !== helperModel);
+    const models = await server.routerModels();
+    if (models.some((m) => m.id === helperModel && m.status === 'loaded')) require('../helpers').noteHelperModelLoaded();
+    const loaded = models.find((m) => m.status === 'loaded' && m.id !== helperModel);
     // Reloading the same model with a vision projector changes what pi may send it.
     const key = loaded && `${loaded.id}|${loaded.inputs.join(',')}`;
     if (!loaded || (loaded.id === followed && key === followedKey)) return;

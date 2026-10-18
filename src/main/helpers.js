@@ -110,6 +110,11 @@ function scheduleIdleUnload() {
   if (idleTimer.unref) idleTimer.unref();
 }
 
+/** The helper model is loaded: make sure it unloads once idle, whoever loaded it. */
+function noteHelperModelLoaded() {
+  if (!idleTimer && !running().length) scheduleIdleUnload();
+}
+
 function finish(h, state) {
   if (h.state === 'done' || h.state === 'failed' || h.state === 'stopped') return;
   h.state = state;
@@ -234,6 +239,7 @@ async function delegate(tasks, { signal, onProgress } = {}) {
   const free = MAX_HELPERS - running().length;
   if (tasks.length > free) throw new Error(`At most ${MAX_HELPERS} helpers can work at once (${free} free now).`);
   if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = null;
 
   const batch = tasks.map((t) => {
     const h = {
@@ -283,4 +289,4 @@ function output(id) {
   return h ? { label: h.label, task: h.task, state: h.state, error: h.error, output: h.output, report: h.state === 'done' ? report(h) : null } : null;
 }
 
-module.exports = { MAX_HELPERS, MAX_TURNS, onUpdate, noteServerStatus, available, delegate, stopAll, output, applyEvent };
+module.exports = { MAX_HELPERS, MAX_TURNS, onUpdate, noteServerStatus, noteHelperModelLoaded, available, delegate, stopAll, output, applyEvent };
