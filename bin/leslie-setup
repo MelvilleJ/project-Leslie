@@ -1,0 +1,183 @@
+#!/usr/bin/env node
+'use strict';
+
+// LESLIE's setup from a terminal; the setup window runs the same tasks.
+//   leslie-setup probe                what this machine has and what setup would pick
+//   leslie-setup plan [options]       the tasks setup would run, without running them
+//   leslie-setup run [options]        run them
+//   leslie-setup status               the last run's outcome per task
+//
+// options:
+//   --build cpu|vulkan|cuda-12.8|cuda-13.4|rocm   engine build to download
+//   --llama-server PATH    use this llama-server instead of downloading one
+//   --remote URL           use a model server on another machine (OpenAI /v1 URL)
+//   --model ID             Everyday model (see `probe`), --power ID|none
+//   --models-dir DIR       where models go
+//   --vision cuda|cpu|off  --speech cuda|cpu|off
+//   --launcher             add LESLIE to the applications menu (needs --app)
+//   --app PATH             command that starts LESLIE (for --launcher / login start)
+//   --no-autostart         don't start LESLIE at login
+//   --searxng URL          --persona friendly|butler|concise  --name NAME
+//   --force a,b            re-run these tasks even if they finished before (repair)
+
+const hardware = require('../src/main/setup/hardware');
+const catalog = require('../src/main/setup/catalog');
+const engines = require('../src/main/setup/engines');
+const probe = require('../src/main/setup/probe');
+const state = require('../src/main/setup/state');
+const persona = require('../src/main/setup/persona');
+const { defaultChoices, downloadBytes } = require('../src/main/setup/recommend');
+const { buildTasks, Runner } = require('../src/main/setup/tasks');
+const { writeSettings } = require('../src/main/setup/appSettings');
+const { which } = require('../src/main/setup/exec');
+
+const GB = 1024 ** 3;
+const c = {
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  yellow: (s) => `\x1b[33m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`
+};
+const MARK = { ok: c.green('✓'), warn: c.yellow('!'), missing: c.red('✗') };
+
+function parseArgs(argv) {
+  const opts = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (!arg.startsWith('--')) continue;
+    const [key, inline] = arg.slice(2).split('=');
+    const next = argv[i + 1];
+    if (inline !== undefined) opts[key] = inline;
+    else if (next !== undefined && !next.startsWith('--')) opts[key] = argv[(i += 1)];
+    else opts[key] = true;
+  }
+  return opts;
+}
+
+function fail(message) {
+  console.error(c.red(message));
+  process.exit(1);
+}
+
+async function choicesFrom(opts) {
+  const gpus = await hardware.detectGpus();
+  const ch = defaultChoices(gpus);
+  if (opts.build) {
+    if (!engines.builds().some((b) => b.id === opts.build)) fail(`Unknown build ${opts.build}; one of ${engines.builds().map((b) => b.id).join(', ')}`);
+    ch.engine = { mode: 'download', build: opts.build };
+  }
+  if (opts['llama-server']) ch.engine = { mode: 'existing', binary: opts['llama-server'] };
+  if (opts.remote) ch.engine = { mode: 'remote', url: opts.remote };
+  if (opts.model) {
+    if (!catalog.find(opts.model)) fail(`Unknown model ${opts.model}`);
+    ch.everyday = opts.model;
+  }
+  if (opts.power === 'none') ch.power = '';
+  else if (opts.power) {
+    if (!catalog.find(opts.power)) fail(`Unknown model ${opts.power}`);
+    ch.power = opts.power;
+  }
+  if (ch.power && ch.power === ch.everyday) fail('Everyday and Power need different models.');
+  if (opts['models-dir']) ch.modelsDir = opts['models-dir'];
+  for (const name of ['vision', 'speech']) {
+    if (opts[name] === 'off') ch[name] = { enabled: false, runtime: ch[name].runtime };
+    else if (opts[name]) ch[name] = { enabled: true, runtime: opts[name] === 'cuda' ? 'cuda' : 'cpu' };
+  }
+  ch.launcher = Boolean(opts.launcher);
+  ch.startAtLogin = !opts['no-autostart'];
+  if (opts.searxng) ch.settings.searxngUrl = opts.searxng;
+  if (opts.persona || opts.name) ch.settings.systemPrompt = persona.systemPrompt({ preset: opts.persona || 'friendly', name: opts.name || '' });
+  return { gpus, choices: ch };
+}
+
+function ctxFrom(opts) {
+  const appExec = opts.app || which('leslie') || '';
+  return { appExec, setSettings: writeSettings };
+}
+
+async function cmdProbe() {
+  const gpus = await hardware.detectGpus();
+  const ch = defaultChoices(gpus);
+  console.log(c.bold('GPUs'));
+  if (!gpus.length) console.log('  none (models will run on the CPU)');
+  for (const g of gpus) {
+    const note = g.driverMissing ? c.yellow(' driver not loaded') : g.integrated ? c.dim(' integrated') : '';
+    console.log(`  ${g.name}  ${(g.vramMiB / 1024).toFixed(1)} GB${note}`);
+  }
+  console.log(`  RAM ${(hardware.ramMiB() / 1024).toFixed(0)} GB`);
+  console.log(`  engine: ${ch.engine.build}   tier: everyday ${ch.tiers.everyday}${ch.tiers.power ? `, power ${ch.tiers.power}` : ''}`);
+  console.log('');
+  console.log(c.bold('Models for this machine'));
+  for (const tier of [...new Set([ch.tiers.everyday, ch.tiers.power].filter(Boolean))]) {
+    for (const m of catalog.forTier(tier)) {
+      console.log(`  ${m.recommended ? c.green('★') : ' '} ${m.id.padEnd(26)} ${(m.bytes / GB).toFixed(1).padStart(5)} GB  ${c.dim(`${tier}, ${m.speed}`)}`);
+    }
+  }
+  console.log('');
+  const { checks } = await probe.systemChecks({ gpus, neededBytes: downloadBytes(ch) });
+  console.log(c.bold('System'));
+  for (const chk of checks) console.log(`  ${MARK[chk.status]} ${chk.label.padEnd(28)} ${c.dim(chk.detail || '')}`);
+  const found = probe.existingInstall();
+  if (found.any) {
+    console.log('');
+    console.log(c.bold('Existing install'));
+    console.log(`  ${Object.entries(found).filter(([k, v]) => v && k !== 'any').map(([k, v]) => (v === true ? k : `${k}: ${v}`)).join(', ')}`);
+  }
+}
+
+async function cmdPlan(opts) {
+  const { choices } = await choicesFrom(opts);
+  const tasks = buildTasks(choices, ctxFrom(opts));
+  console.log(c.bold('Choices'));
+  console.log(c.dim(JSON.stringify(choices, null, 2).split('\n').map((l) => `  ${l}`).join('\n')));
+  console.log(`  about ${(downloadBytes(choices) / GB).toFixed(1)} GB to download`);
+  console.log('');
+  console.log(c.bold('Tasks'));
+  for (const t of new Runner(tasks, { record: false }).plan()) {
+    console.log(`  ${t.id.padEnd(30)} ${t.label}${t.optional ? c.dim(' (optional)') : ''}${t.deps.length ? c.dim(`  after ${t.deps.join(', ')}`) : ''}`);
+  }
+}
+
+async function cmdRun(opts) {
+  const { choices } = await choicesFrom(opts);
+  state.update({ choices });
+  const runner = new Runner(buildTasks(choices, ctxFrom(opts)), { force: opts.force ? String(opts.force).split(',') : [] });
+  const tasks = runner.tasks;
+  let lastLine = '';
+  runner.on('event', (ev) => {
+    const label = tasks.get(ev.id).label;
+    if (ev.type === 'progress') {
+      const line = `  … ${label}: ${ev.text || ''}${ev.fraction !== undefined ? ` ${Math.round(ev.fraction * 100)}%` : ''}`;
+      if (line !== lastLine && process.stdout.isTTY) process.stdout.write(`\r\x1b[2K${line}`);
+      lastLine = line;
+      return;
+    }
+    const mark = { running: '→', done: c.green('✓'), skipped: c.dim('·'), failed: c.red('✗'), blocked: c.yellow('-') }[ev.status];
+    if (process.stdout.isTTY) process.stdout.write('\r\x1b[2K');
+    console.log(`  ${mark} ${label}${ev.error ? c.dim(`: ${ev.error}`) : ''}`);
+  });
+  const { ok } = await runner.runAll();
+  state.update({ finished: ok });
+  console.log(ok ? c.green('\nSetup finished.') : c.red('\nSetup did not finish; run it again to retry the failed steps.'));
+  process.exit(ok ? 0 : 1);
+}
+
+function cmdStatus() {
+  const st = state.load();
+  if (!st) return console.log('Setup has not run yet.');
+  console.log(`finished: ${st.finished ? c.green('yes') : c.yellow('no')}`);
+  for (const [id, t] of Object.entries(st.tasks)) console.log(`  ${id.padEnd(30)} ${t.status}${t.error ? c.dim(`: ${t.error}`) : ''}`);
+}
+
+async function main() {
+  const [cmd = 'probe', ...rest] = process.argv.slice(2);
+  const opts = parseArgs(rest);
+  if (cmd === 'probe') return cmdProbe();
+  if (cmd === 'plan') return cmdPlan(opts);
+  if (cmd === 'run') return cmdRun(opts);
+  if (cmd === 'status') return cmdStatus();
+  fail(`Unknown command ${cmd}. Try: probe, plan, run, status`);
+}
+
+main().catch((err) => fail(err.stack || err.message));

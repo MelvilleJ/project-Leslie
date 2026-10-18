@@ -1,0 +1,26 @@
+[project]
+name = "leslie-speech"
+version = "0.1.0"
+description = "Speech recognition sidecar for LESLIE (faster-whisper behind an OpenAI-style endpoint)"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "faster-whisper>=1.1",
+]
+
+# cuda adds the cuBLAS and cuDNN libraries CTranslate2 loads; cpu needs nothing extra.
+[project.optional-dependencies]
+cuda = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]
+cpu = []
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[project.scripts]
+leslie-speech = "leslie_speech.server:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["leslie_speech"]
