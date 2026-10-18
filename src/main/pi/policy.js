@@ -6,7 +6,7 @@ const presence = require('../presence/status');
 const docs = require('../docs');
 
 // Tools a guest may still use while the owner is away from the desk.
-const GUEST_BLOCKED = ['remember', 'read_document', 'install_software', 'model_profile', 'set_mode', 'screenshot', 'screen_record', 'doc_list', 'doc_read', 'doc_open'];
+const GUEST_BLOCKED = ['delegate', 'remember', 'read_document', 'install_software', 'model_profile', 'set_mode', 'screenshot', 'screen_record', 'doc_list', 'doc_read', 'doc_open'];
 
 // Leslie tools pi has no equivalent for. run_command, list_directory, read_file,
 // write_file and task are covered by pi's bash, ls/find, read, write/edit and
@@ -32,14 +32,22 @@ const BRIDGED = {
   screenshot: require('../tools/screenshot'),
   look: require('../tools/look'),
   speech: require('../tools/speech'),
+  delegate: require('../tools/delegate'),
+  read_page: require('../tools/readPage'),
+  report: require('../tools/report'),
   ...Object.fromEntries(require('../tools/liveDocs').map((t) => [t.name, t]))
 };
 
 const PI_READ_TOOLS = ['read', 'grep', 'find', 'ls'];
+// Everything a helper Leslie may use: looking things up, never changing anything.
+const HELPER_BRIDGED = ['web_search', 'deep_search', 'read_page', 'report', 'read_document', 'doc_list', 'doc_read'];
 const PI_WRITE_TOOLS = ['bash', 'edit', 'write'];
 // Plan mode writes its plan as a live doc; bash, edit and write are held to
 // read-only commands and doc files by the bridge's gates.
 const PLAN_DOC_TOOLS = ['doc_create', 'doc_edit'];
+
+// Required lazily: helpers spawns pi, which loads this module.
+const helpers = () => require('../helpers');
 
 function cwd() {
   return config.piCwd || os.homedir();
@@ -49,10 +57,12 @@ function bridgedAllowed() {
   if (!config.toolsEnabled) return [];
   return Object.values(BRIDGED)
     .filter((t) => {
+      if (t.helperOnly) return false;
       if (t.name === 'install_software') return config.agentMode;
       if (t.name === 'read_document') return config.fsReadEnabled;
       if (t.name === 'remember') return config.learningMode;
       if (t.name.startsWith('doc_')) return docs.enabled();
+      if (t.name === 'delegate') return helpers().available();
       return true;
     })
     .filter((t) => !config.planMode || t.readOnly || PLAN_DOC_TOOLS.includes(t.name))
@@ -80,6 +90,26 @@ function bridgedTool(name) {
   return bridgedAllowed().includes(name) ? BRIDGED[name] : null;
 }
 
+function helperAllowed() {
+  if (!config.toolsEnabled) return [];
+  const pi = config.fsReadEnabled || config.agentMode ? PI_READ_TOOLS : [];
+  const bridged = HELPER_BRIDGED.filter((name) => {
+    if (name === 'read_document') return config.fsReadEnabled;
+    if (name.startsWith('doc_')) return docs.enabled();
+    return true;
+  }).filter((name) => !presence.restricted() || !GUEST_BLOCKED.includes(name));
+  return [...(presence.restricted() ? [] : pi), ...bridged];
+}
+
+/** Like toolSelection, for a helper Leslie. */
+function helperSelection() {
+  return { managedTools: toolSelection().managedTools, activeTools: helperAllowed() };
+}
+
+function helperTool(name) {
+  return HELPER_BRIDGED.includes(name) && helperAllowed().includes(name) ? BRIDGED[name] : null;
+}
+
 /** Specs for every bridged tool; the extension registers all, the mode picks the active ones. */
 function bridgedSpecs() {
   return Object.values(BRIDGED).map((t) => ({
@@ -90,4 +120,4 @@ function bridgedSpecs() {
   }));
 }
 
-module.exports = { cwd, toolSelection, bridgedTool, bridgedSpecs };
+module.exports = { cwd, toolSelection, bridgedTool, bridgedSpecs, helperSelection, helperTool };

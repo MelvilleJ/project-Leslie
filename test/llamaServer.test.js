@@ -82,3 +82,14 @@ test('model presets cover models outside the profiles, but profiles win', () => 
   assert.match(section(text, 'other-model'), /device = Vulkan0\nctx-size = 8192/);
   assert.match(section(text, 'gpt-oss-20b-unsloth'), /ctx-size = 65536/);
 });
+
+test('the helper model gets its own preset on the second GPU, with parallel slots', () => {
+  const settings = fixture();
+  fs.mkdirSync(path.join(settings.modelsDir, 'Qwen3.5-4B-Q6_K'));
+  fs.writeFileSync(path.join(settings.modelsDir, 'Qwen3.5-4B-Q6_K', 'Qwen3.5-4B-Q6_K.gguf'), '');
+  writePresets(settings);
+  const helper = section(fs.readFileSync(settings.presetsFile, 'utf8'), 'Qwen3.5-4B-Q6_K');
+  assert.match(helper, /device = Vulkan0\n/);
+  assert.match(helper, /ctx-size = 98304\nparallel = 3/);
+  assert.doesNotMatch(helper, /load-on-startup/);
+});

@@ -29,6 +29,7 @@ async function useModel(model) {
 async function status() {
   const st = await server.status();
   st.switching = Boolean(switching);
+  require('../helpers').noteServerStatus(switching ? null : st);
   return st;
 }
 
@@ -41,6 +42,8 @@ async function publish() {
 
 async function switchTo(profile) {
   if (switching) throw new Error('A model is already loading.');
+  // The helpers' model is unloaded by the switch; stop them first.
+  require('../helpers').stopAll();
   const progress = (text) => broadcast({ type: 'progress', text });
   switching = (async () => {
     const st = await server.status();
@@ -98,7 +101,8 @@ async function followServer() {
   if (switching || following) return;
   following = true;
   try {
-    const loaded = (await server.routerModels()).find((m) => m.status === 'loaded');
+    const helperModel = server.loadSettings().helper.model;
+    const loaded = (await server.routerModels()).find((m) => m.status === 'loaded' && m.id !== helperModel);
     // Reloading the same model with a vision projector changes what pi may send it.
     const key = loaded && `${loaded.id}|${loaded.inputs.join(',')}`;
     if (!loaded || (loaded.id === followed && key === followedKey)) return;
@@ -200,6 +204,8 @@ module.exports = {
   whenModelLoaded,
   saveSettings,
   loadSettings: server.loadSettings,
+  loadHelper: (onProgress) => server.loadHelper(onProgress),
+  unloadHelper: () => server.unloadHelper(),
   listModels: () => server.listModels(),
   logs: (n) => server.logs(n),
   unloadAll: async () => {

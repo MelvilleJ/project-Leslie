@@ -12,6 +12,8 @@ import net from "node:net";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+const HELPER_MAX_TOKENS = 4096;
+
 type Pending = { resolve: (v: any) => void; reject: (e: Error) => void; onProgress?: (text: string) => void };
 
 function createBridgeClient(address: string) {
@@ -88,7 +90,11 @@ export default function (pi: ExtensionAPI) {
 	if (!manifestPath || !bridgeAddress) return;
 
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-	const call = createBridgeClient(bridgeAddress);
+	const bridgeCall = createBridgeClient(bridgeAddress);
+	// Set when LESLIE runs this pi as a helper; the bridge then applies the helper's rules.
+	const helper = process.env.LESLIE_HELPER;
+	const call: typeof bridgeCall = (method, params = {}, onProgress) =>
+		bridgeCall(method, helper ? { ...params, helper } : params, onProgress);
 
 	if (manifest.provider) pi.registerProvider("leslie", manifest.provider);
 
@@ -136,6 +142,18 @@ export default function (pi: ExtensionAPI) {
 		pi.setActiveTools([...kept, ...activeTools]);
 		event.systemPromptOptions.sections = { ...event.systemPromptOptions.sections, ...sections };
 	});
+
+	// A helper may only act through tools, so the one way to finish is its report tool.
+	// The token cap stops a small model that falls into a repetition loop.
+	if (helper) {
+		pi.on("before_provider_request", (event) => {
+			const payload = event.payload as Record<string, unknown>;
+			const cap = (value: unknown) => Math.min(Number(value) || HELPER_MAX_TOKENS, HELPER_MAX_TOKENS);
+			const capped: Record<string, unknown> = { ...payload, tool_choice: "required", max_tokens: cap(payload.max_tokens) };
+			if ("max_completion_tokens" in payload) capped.max_completion_tokens = cap(payload.max_completion_tokens);
+			return capped;
+		});
+	}
 
 	pi.on("tool_call", async (event) => {
 		if (event.toolName === "bash" || event.toolName === "powershell") {

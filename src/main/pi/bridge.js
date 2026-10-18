@@ -12,6 +12,8 @@ const { underRoots } = require('../tools/lib/osPaths');
 const planGuard = require('../tools/lib/planGuard');
 const policy = require('./policy');
 
+const HELPER_REFUSAL = 'Helpers only look things up; they cannot run commands or change files.';
+
 function socketPath() {
   const name = `leslie-pi-${process.pid}`;
   return process.platform === 'win32' ? `\\\\.\\pipe\\${name}` : path.join(os.tmpdir(), `${name}.sock`);
@@ -28,7 +30,7 @@ function formatResult(result) {
  *
  * `getTurn()` returns the active turn's `{ ctx, onEvent }`, or null when idle.
  */
-function createBridge({ getTurn, systemSections }) {
+function createBridge({ getTurn, systemSections, helperSections }) {
   const address = socketPath();
   const inflight = new Map();
 
@@ -40,21 +42,26 @@ function createBridge({ getTurn, systemSections }) {
   };
 
   const methods = {
-    context: () => ({ sections: systemSections(), ...policy.toolSelection() }),
+    context: ({ helper }) =>
+      helper
+        ? { sections: helperSections(), ...policy.helperSelection() }
+        : { sections: systemSections(), ...policy.toolSelection() },
 
-    async tool({ callId, name, args }, send) {
-      const tool = policy.bridgedTool(name);
-      if (!tool) throw new Error(`"${name}" is not available in the current mode.`);
+    // A helper's tool events reach the UI through its own pi output, not the main turn.
+    async tool({ callId, name, args, helper }, send) {
+      const tool = helper ? policy.helperTool(name) : policy.bridgedTool(name);
+      if (!tool) throw new Error(`"${name}" is not available ${helper ? 'to helpers' : 'in the current mode'}.`);
       const controller = new AbortController();
       inflight.set(callId, controller);
       const onProgress = (p) => {
         const label = typeof p === 'string' ? p : (p && p.label) || '';
         const research = p && typeof p === 'object' ? p.event : undefined;
-        emit({ type: 'tool', phase: 'progress', id: callId, name, detail: label, research });
+        if (!helper) emit({ type: 'tool', phase: 'progress', id: callId, name, detail: label, research });
         if (label) send({ progress: label });
       };
       try {
-        const result = await tool.run(args || {}, { ...turnCtx(), signal: controller.signal, onProgress });
+        const ctx = helper ? idleCtx : turnCtx();
+        const result = await tool.run(args || {}, { ...ctx, signal: controller.signal, onProgress });
         const images = Array.isArray(result?.images) ? result.images : undefined;
         return { output: formatResult(result), images };
       } finally {
@@ -68,7 +75,8 @@ function createBridge({ getTurn, systemSections }) {
       return {};
     },
 
-    async gateCommand({ command }) {
+    async gateCommand({ command, helper }) {
+      if (helper) return { allowed: false, reason: HELPER_REFUSAL };
       if (config.planMode) {
         const allowed = planGuard.commandInPlan(String(command || ''), policy.cwd());
         return allowed ? { allowed } : { allowed, reason: planGuard.planCommandRefusal() };
@@ -76,7 +84,8 @@ function createBridge({ getTurn, systemSections }) {
       return { allowed: await gate(String(command || ''), turnCtx()) };
     },
 
-    async gateWrite({ path: target, toolName }) {
+    async gateWrite({ path: target, toolName, helper }) {
+      if (helper) return { allowed: false, reason: HELPER_REFUSAL };
       if (config.planMode) {
         const allowed = planGuard.writableInPlan(String(target || ''), policy.cwd());
         return allowed ? { allowed } : { allowed, reason: planGuard.planWriteRefusal() };

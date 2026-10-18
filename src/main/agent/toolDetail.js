@@ -4,7 +4,7 @@
 function toolDetail(name, args) {
   if (name === 'web_search' || name === 'deep_search' || name === 'open_search') return args.query ?? '';
   if (name === 'grep' || name === 'find') return args.pattern ?? '';
-  if (name === 'open_url') return args.url ?? '';
+  if (name === 'open_url' || name === 'read_page') return args.url ?? '';
   if (name === 'open_app' || name === 'close_app') return args.app ?? '';
   if (name === 'play_video') return args.video ?? '';
   if (name === 'media_control' || name === 'window_control') return [args.action, args.app || args.player].filter(Boolean).join(' ');

@@ -58,6 +58,17 @@ const DEFAULTS = {
       cpuMoeLayers: null
     }
   },
+  // A small model on the GPU Everyday leaves free, for the helper Leslies.
+  // ctx is shared by its parallel slots, one per helper.
+  helper: {
+    label: 'Helpers',
+    model: 'Qwen3.5-4B-Q6_K',
+    devices: 'Vulkan0',
+    ctx: 98304,
+    parallel: 3,
+    cacheType: '',
+    idleMinutes: 5
+  },
   // Router settings for models outside the two profiles, keyed by model id.
   // Without one, the router loads a model with no ctx-size and --fit shrinks the
   // context to whatever VRAM happens to be free.
@@ -93,12 +104,13 @@ function loadSettings() {
   for (const name of PROFILES) profiles[name] = { ...DEFAULTS.profiles[name], ...((saved.profiles || {})[name] || {}) };
   const modelPresets = {};
   for (const [id, preset] of Object.entries(saved.modelPresets || {})) modelPresets[id] = cleanPreset(preset);
-  return { ...DEFAULTS, ...saved, profiles, modelPresets };
+  const helper = { ...DEFAULTS.helper, ...(saved.helper || {}) };
+  return { ...DEFAULTS, ...saved, profiles, helper, modelPresets };
 }
 
 function saveSettings(patch) {
   const current = loadSettings();
-  const next = { ...current, ...patch, profiles: { ...current.profiles } };
+  const next = { ...current, ...patch, profiles: { ...current.profiles }, helper: { ...current.helper, ...(patch.helper || {}) } };
   for (const name of PROFILES) {
     if (patch.profiles && patch.profiles[name]) next.profiles[name] = { ...current.profiles[name], ...patch.profiles[name] };
   }
@@ -177,6 +189,7 @@ function presetSection(id, profile, entry, loadOnStartup, threads) {
   lines.push(`threads = ${threads}`, `device = ${profile.devices}`, `ctx-size = ${profile.ctx}`);
   if (profile.tensorSplit) lines.push(`tensor-split = ${profile.tensorSplit}`);
   if (profile.cpuMoeLayers > 0) lines.push(`n-cpu-moe = ${profile.cpuMoeLayers}`);
+  if (profile.parallel > 1) lines.push(`parallel = ${profile.parallel}`);
   if (profile.cacheType) lines.push(`cache-type-k = ${profile.cacheType}`, `cache-type-v = ${profile.cacheType}`);
   if (profile.specType) lines.push(`spec-type = ${profile.specType}`);
   if (loadOnStartup) lines.push('load-on-startup = true');
@@ -193,6 +206,10 @@ function writePresets(settings = loadSettings()) {
     const profile = settings.profiles[name];
     const entry = models.get(profile.model);
     if (entry) ours.set(profile.model, presetSection(profile.model, profile, entry, name === 'everyday', settings.threads));
+  }
+  const helperEntry = models.get(settings.helper.model);
+  if (helperEntry && !ours.has(settings.helper.model)) {
+    ours.set(settings.helper.model, presetSection(settings.helper.model, settings.helper, helperEntry, false, settings.threads));
   }
   for (const [id, preset] of Object.entries(settings.modelPresets)) {
     const entry = models.get(id);
@@ -347,6 +364,7 @@ async function status() {
     profiles,
     activeProfile: active ? active.name : null,
     modelPresets: settings.modelPresets,
+    helper: { ...settings.helper, state: byId.get(settings.helper.model) || 'missing' },
     loaded: loaded.map((m) => m.id),
     gpus: gpuList
   };
@@ -398,6 +416,24 @@ async function switchProfile(profile, onProgress = () => {}) {
   return target.model;
 }
 
+/** Load the helper model next to the active profile (never unloading it). */
+async function loadHelper(onProgress = () => {}) {
+  const { model } = loadSettings().helper;
+  const current = (await routerModels()).find((m) => m.id === model);
+  if (!current) throw new Error(`The helper model ${model} is not in the models folder.`);
+  if (current.status === 'loaded') return model;
+  onProgress(`Loading ${model}…`);
+  if (current.status !== 'loading') await api('/models/load', { model });
+  await waitFor(model, 'loaded', 5 * 60000, onProgress);
+  return model;
+}
+
+async function unloadHelper() {
+  const { model } = loadSettings().helper;
+  const current = (await routerModels()).find((m) => m.id === model);
+  if (current && (current.status === 'loaded' || current.status === 'loading')) await api('/models/unload', { model });
+}
+
 async function unloadAll() {
   for (const m of await routerModels()) {
     if (m.status === 'loaded' || m.status === 'loading') await api('/models/unload', { model: m.id });
@@ -418,5 +454,7 @@ module.exports = {
   gpus,
   status,
   switchProfile,
+  loadHelper,
+  unloadHelper,
   unloadAll
 };

@@ -573,3 +573,75 @@ button.pi-chip:hover { color: var(--text); border-color: color-mix(in srgb, var(
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 #rec-indicator::before { content: '● '; animation: pulse 1.2s ease-in-out infinite; }
+
+/* --- Helper Leslies (beside the mascot while delegate runs) ------------------ */
+/* Each helper is 80px wide plus a 4px gap; main.js widens the window by 84px each. */
+#helpers {
+  display: none;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 0 2px 6px;
+  -webkit-app-region: no-drag;
+}
+
+body.has-helpers #helpers { display: flex; }
+
+.helper {
+  width: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  animation: helper-spawn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  transition: opacity 0.6s ease;
+}
+
+.helper-sprite {
+  zoom: 0.28;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+
+.helper-label,
+.helper-step {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.helper-label { font-size: 0.66rem; font-weight: 600; color: var(--text); }
+.helper-step { font-size: 0.6rem; color: var(--text-dim); }
+
+.helper-bar {
+  width: 68px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.helper-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.5s ease;
+}
+
+.helper[data-state='starting'] .helper-bar span { animation: pulse 1.2s ease-in-out infinite; }
+.helper[data-state='done'] .helper-bar span { background: #4fc27a; }
+.helper[data-verdict='partly'] .helper-bar span,
+.helper[data-verdict='unverified'] .helper-bar span { background: #e0a83a; }
+.helper[data-state='failed'] .helper-bar span,
+.helper[data-state='stopped'] .helper-bar span { background: #d8343f; }
+.helper[data-state='done'],
+.helper[data-state='failed'],
+.helper[data-state='stopped'] { opacity: 0.75; }
+
+@keyframes helper-spawn {
+  from { opacity: 0; transform: translateX(48px) scale(0.5); }
+}

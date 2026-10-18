@@ -96,6 +96,14 @@ contextBridge.exposeInMainWorld('leslie', {
 
   /** Expand (show chat panel) or collapse (mascot only). */
   setExpanded: (on) => ipcRenderer.send('window:set-expanded', !!on),
+  /** Helper Leslies on screen: [{ id, label, state, step, turns, maxTurns }]. */
+  onHelpers: (cb) => {
+    const l = (_e, list) => cb(list || []);
+    ipcRenderer.on('helpers:update', l);
+    return () => ipcRenderer.removeListener('helpers:update', l);
+  },
+  openHelper: (id) => ipcRenderer.send('helpers:open', id),
+  setHelperCount: (n) => ipcRenderer.send('window:set-helpers', Number(n) || 0),
 
   onVoiceWake: (cb) => {
     const l = (_e, data) => cb(data || {});

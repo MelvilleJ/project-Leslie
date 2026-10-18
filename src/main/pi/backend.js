@@ -10,7 +10,7 @@ const memory = require('../memory');
 const presence = require('../presence/status');
 const docs = require('../docs');
 const { createTagRouter, FORMAT_INSTRUCTIONS } = require('../agent/replyTags');
-const { planModeDirective, TASK_MODE_DIRECTIVE } = require('../agent/directives');
+const { planModeDirective, TASK_MODE_DIRECTIVE, HELPER_DIRECTIVE } = require('../agent/directives');
 const { toolDetail } = require('../agent/toolDetail');
 const { extractMemories } = require('../agent/reflect');
 const { PiRpcClient } = require('./rpcClient');
@@ -230,8 +230,19 @@ function newClient(opts) {
 
 async function ensureBridge() {
   if (bridge) return;
-  bridge = createBridge({ getTurn: () => turn, systemSections });
+  bridge = createBridge({ getTurn: () => turn, systemSections, helperSections: () => ({ leslie_helper: HELPER_DIRECTIVE }) });
   await bridge.listen();
+}
+
+/** How to start a helper pi: the same extension and bridge as the main one. */
+async function helperLaunch() {
+  await ensureBridge();
+  return {
+    command: config.piCommand,
+    extension: EXTENSION_PATH,
+    cwd: policy.cwd(),
+    env: { ...process.env, LESLIE_BRIDGE: bridge.address, LESLIE_PI_MANIFEST: writeManifest() }
+  };
 }
 
 async function spawnPi() {
@@ -653,5 +664,6 @@ module.exports = {
   runBash,
   listSessions,
   getSession,
-  sessionFileFor
+  sessionFileFor,
+  helperLaunch
 };

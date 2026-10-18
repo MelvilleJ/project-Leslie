@@ -18,6 +18,7 @@ const settings = require('./settings');
 const memory = require('./memory');
 const configStore = require('./configStore');
 const sysmon = require('./sysmon');
+const helpers = require('./helpers');
 const animations = require('./animations');
 const aseprite = require('./aseprite');
 const wardrobe = require('./wardrobe');
@@ -62,6 +63,8 @@ let tray = null;
 // Mascot floats alone (collapsed) or with chat panel (expanded), anchored to right edge.
 const COLLAPSED_WIDTH = 240;
 const EXPANDED_WIDTH = 640;
+// Each helper Leslie widens the window by one column (see #helpers in styles.css).
+const HELPER_WIDTH = 84;
 const PANEL_HEIGHT = 440;
 const PANEL_MARGIN = 24;
 
@@ -546,6 +549,8 @@ function toCompanion(channel, payload) {
   }
 }
 
+helpers.onUpdate((list) => toCompanion('helpers:update', list));
+
 function forwardPiEvents() {
   const pi = agent.pi();
   pi.onUiEvent((ev) => {
@@ -977,17 +982,46 @@ ipcMain.handle('wardrobe:set', (_event, patch) => {
 
 ipcMain.on('settings:open', (_event, panel) => showSettingsWindow(panel));
 
+let companionExpanded = false;
+let helperCount = 0;
+
 ipcMain.on('window:set-expanded', (_event, expanded) => {
+  companionExpanded = Boolean(expanded);
+  resizeCompanion();
+});
+
+ipcMain.on('window:set-helpers', (_event, count) => {
+  helperCount = Math.max(0, Math.min(helpers.MAX_HELPERS, Number(count) || 0));
+  resizeCompanion();
+});
+
+ipcMain.on('helpers:open', (_event, id) => {
+  const h = helpers.output(id);
+  if (!h) return;
+  const body = h.report ? helperReportMarkdown(h.report) : h.output || (h.error ? `_${h.error}_` : '_Nothing yet._');
+  const win = showDetailWindow();
+  win.webContents.send('detail:begin', { question: `Helper: ${h.label}` });
+  win.webContents.send('detail:chunk', `# ${h.label}\n\n**Task:** ${h.task}\n\n${body}`);
+  win.webContents.send('detail:end');
+});
+
+function helperReportMarkdown(r) {
+  const evidence = r.evidence.map((e) => `- ${e.found_in_sources ? '✓' : '✗ not in what it read:'} "${e.quote}" (${e.url})`).join('\n');
+  const unknowns = r.unknowns ? `\n\n**Unsure about:** ${r.unknowns}` : '';
+  return `**Answer:** ${r.answer}\n\n**Check:** ${r.verification} · confidence ${r.confidence || '?'}\n\n${evidence}${unknowns}`;
+}
+
+function resizeCompanion() {
   if (!companionWindow || companionWindow.isDestroyed()) return;
   const b = companionWindow.getBounds();
-  const width = expanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
+  const width = (companionExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH) + helperCount * HELPER_WIDTH;
   if (b.width === width) return;
   const right = b.x + b.width;
   lastProgrammaticMove = Date.now();
   companionWindow.setBounds({ x: right - width, y: b.y, width, height: b.height });
   // Wayland ignores the x above; re-anchor to the home display's corner.
   placeCompanion();
-});
+}
 
 let watchingHyprland = false;
 

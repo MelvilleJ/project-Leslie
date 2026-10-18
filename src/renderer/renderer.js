@@ -105,33 +105,50 @@ const flags = {
 let clipsById = Object.create(null);
 let bindings = {};
 
-let currentClip = null;
-let frame = 0;
-let animTimer = null;
 let idleRotateTimer = null;
 let lastIdleId = null;
 
-function drawFrame(clip, n) {
-  const col = n % clip.cols;
-  const row = Math.floor(n / clip.cols);
-  avatar.style.backgroundPosition = `-${col * clip.frameW}px -${row * clip.frameH}px`;
+/** Plays sprite-sheet clips on one element; the main avatar and each helper have one. */
+function spritePlayer(el) {
+  let clip = null;
+  let frame = 0;
+  let timer = null;
+  const draw = () => {
+    const col = frame % clip.cols;
+    const row = Math.floor(frame / clip.cols);
+    el.style.backgroundPosition = `-${col * clip.frameW}px -${row * clip.frameH}px`;
+  };
+  return {
+    play(next) {
+      if (!next || next === clip) return;
+      clip = next;
+      frame = 0;
+      el.style.backgroundImage = `url('${clipSheetUrl(clip)}')`;
+      el.style.backgroundRepeat = 'no-repeat';
+      el.style.imageRendering = clip.pixelArt ? 'pixelated' : '';
+      el.style.width = `${clip.frameW}px`;
+      el.style.height = `${clip.frameH}px`;
+      draw();
+      if (timer) clearInterval(timer);
+      timer = setInterval(() => {
+        frame = (frame + 1) % clip.frames;
+        draw();
+      }, clip.frameMs || 140);
+    },
+    reset() {
+      clip = null;
+    },
+    stop() {
+      if (timer) clearInterval(timer);
+      timer = null;
+    }
+  };
 }
 
+const avatarPlayer = spritePlayer(avatar);
+
 function playClip(clip) {
-  if (!clip || clip === currentClip) return;
-  currentClip = clip;
-  frame = 0;
-  avatar.style.backgroundImage = `url('${clipSheetUrl(clip)}')`;
-  avatar.style.backgroundRepeat = 'no-repeat';
-  avatar.style.imageRendering = clip.pixelArt ? 'pixelated' : '';
-  avatar.style.width = `${clip.frameW}px`;
-  avatar.style.height = `${clip.frameH}px`;
-  drawFrame(clip, 0);
-  if (animTimer) clearInterval(animTimer);
-  animTimer = setInterval(() => {
-    frame = (frame + 1) % currentClip.frames;
-    drawFrame(currentClip, frame);
-  }, clip.frameMs || 140);
+  avatarPlayer.play(clip);
 }
 
 function activeState() {
@@ -189,8 +206,9 @@ function applyAnimConfig(cfg) {
   for (const c of cfg.clips || []) clipsById[c.id] = c;
   bindings = cfg.bindings || {};
   if (!(bindings.idle || []).length && clipsById['builtin:idle']) bindings.idle = ['builtin:idle'];
-  currentClip = null;
+  avatarPlayer.reset();
   resolveAnimation();
+  refreshHelperClips();
 }
 
 const FALLBACK_ANIM_CONFIG = {
@@ -2068,3 +2086,68 @@ const showPresence = (snap) => {
 };
 window.leslie.onPresence(showPresence);
 window.leslie.presence().then(showPresence).catch(() => {});
+
+// --- Helper Leslies -----------------------------------------------------------
+// Small copies of Leslie beside the main one while the delegate tool runs, each
+// with its task label, a progress bar (turns used of its budget) and its current step.
+const helperStrip = document.getElementById('helpers');
+const helperViews = new Map();
+
+function helperClip(h) {
+  if (h.state === 'starting') return clipForState('thinking');
+  if (h.state === 'working') return (h.step && h.step.includes(':') && clipForState('toolCall')) || clipForState('thinking');
+  return null;
+}
+
+function helperProgress(h) {
+  if (h.state === 'done') return 1;
+  if (h.state === 'starting') return 0.15;
+  return Math.min(0.95, Math.max(0.1, h.turns / h.maxTurns));
+}
+
+function helperView(h) {
+  let view = helperViews.get(h.id);
+  if (view) return view;
+  const el = document.createElement('div');
+  el.className = 'helper';
+  el.innerHTML = '<div class="helper-sprite"></div><div class="helper-label"></div><div class="helper-bar"><span></span></div><div class="helper-step"></div>';
+  el.addEventListener('click', () => window.leslie.openHelper(h.id));
+  helperStrip.appendChild(el);
+  view = { el, player: spritePlayer(el.querySelector('.helper-sprite')), state: null };
+  helperViews.set(h.id, view);
+  return view;
+}
+
+function renderHelper(h) {
+  const view = helperView(h);
+  view.state = h;
+  view.el.dataset.state = h.state;
+  view.el.dataset.verdict = h.verdict || '';
+  view.el.title = `${h.label}: ${h.step || ''}`;
+  view.el.querySelector('.helper-label').textContent = h.label;
+  view.el.querySelector('.helper-step').textContent = h.step || '';
+  view.el.querySelector('.helper-bar span').style.width = `${Math.round(helperProgress(h) * 100)}%`;
+  view.player.play(helperClip(h) || clipForState('idle') || clipsById['builtin:idle']);
+}
+
+function refreshHelperClips() {
+  for (const view of helperViews.values()) {
+    view.player.reset();
+    if (view.state) renderHelper(view.state);
+  }
+}
+
+function showHelpers(list) {
+  const ids = new Set(list.map((h) => h.id));
+  for (const [id, view] of helperViews) {
+    if (ids.has(id)) continue;
+    view.player.stop();
+    view.el.remove();
+    helperViews.delete(id);
+  }
+  for (const h of list) renderHelper(h);
+  document.body.classList.toggle('has-helpers', list.length > 0);
+  window.leslie.setHelperCount(list.length);
+}
+
+window.leslie.onHelpers(showHelpers);
