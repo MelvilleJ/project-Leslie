@@ -42,8 +42,8 @@ systemctl --user start llama-router leslie
 
 This installs per-user (no root): the app, `leslie` and `leslie-server` in
 `~/.local/bin`, launcher entries, icons, and the `leslie` systemd user service
-that starts the app at login. The installed app reads
-`~/.config/project-leslie/.env` (a link to this repo's `.env`).
+that starts the app at login. Settings live in the app (Settings window); the
+installed app also reads `~/.config/project-leslie/.env` if you create one.
 
 ### Model server: the shared llama-router service
 
@@ -101,8 +101,8 @@ switches between it and the slower in-app model.
 
 ### Home display
 
-On Hyprland the companion lives on one monitor (`LESLIE_HOME_MONITOR`, default
-`HDMI-A-1`; Settings → Behaviour → Home display): she opens there, is pinned across
+On Hyprland the companion lives on one monitor (`LESLIE_HOME_MONITOR`, blank by
+default; Settings → Behaviour → Home display): she opens there, is pinned across
 its workspaces, and a wake word brings her back there without taking focus.
 Left-click the tray icon or run `leslie --toggle` (bind it to a key) to show/hide her.
 

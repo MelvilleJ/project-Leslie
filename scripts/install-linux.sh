@@ -57,12 +57,6 @@ Categories=Utility;
 EOF
 update-desktop-database -q "$APPS" 2>/dev/null || true
 
-# The installed app has no source checkout next to it; share the repo's .env.
-if [ -f "$ROOT/.env" ] && [ ! -e "$CONF/.env" ]; then
-  echo "→ linking $CONF/.env → $ROOT/.env"
-  ln -s "$ROOT/.env" "$CONF/.env"
-fi
-
 echo "→ systemd user services"
 cat > "$UNITS/leslie.service" <<EOF
 [Unit]

@@ -35,6 +35,12 @@
       "!src/SampleRepos/**",
       "assets/**",
       "bin/**",
+      "scripts/setup-*.sh",
+      "vision/**",
+      "!vision/build/**",
+      "!vision/tests/**",
+      "!vision/**/*.egg-info/**",
+      "!vision/**/__pycache__/**",
       "package.json",
       "node_modules/**"
     ],
@@ -42,6 +48,8 @@
       "src/pi-extension/**",
       "src/main/server/**",
       "bin/**",
+      "scripts/**",
+      "vision/**",
       "node_modules/**/onnxruntime-node/**",
       "node_modules/sharp/**",
       "node_modules/@img/**"
