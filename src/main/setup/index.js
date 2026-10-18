@@ -144,6 +144,13 @@ async function testUrl({ kind, url }) {
   }
 }
 
+/** The choices as setup-state.json may hold them: never with an API key. */
+function storable(choices) {
+  if (!choices || !choices.engine || !choices.engine.apiKey) return choices;
+  const { apiKey, ...engine } = choices.engine;
+  return { ...choices, engine };
+}
+
 function settle(promise) {
   return Promise.resolve(promise).then((data) => ({ ok: true, data }), (err) => ({ ok: false, error: err.message }));
 }
@@ -160,7 +167,9 @@ function register() {
   ipcMain.handle('setup:monitors', () => settle(monitors()));
   ipcMain.handle('setup:cameras', () => settle(Promise.resolve(cameras())));
   ipcMain.handle('setup:test-url', (_e, args) => testUrl(args || {}));
-  ipcMain.handle('setup:save', (_e, choices) => settle(Promise.resolve(state.update({ choices }))));
+  ipcMain.handle('setup:save', (_e, choices) => settle(Promise.resolve(state.update({ choices: storable(choices) }))));
+  ipcMain.handle('setup:cloud-providers', () => ({ ok: true, data: require('../pi/cloud').PROVIDERS }));
+  ipcMain.handle('setup:cloud-models', (_e, { provider, apiKey } = {}) => settle(require('../pi/cloud').listModels(provider, apiKey)));
   // Start the big downloads while the remaining questions are answered.
   ipcMain.handle('setup:prefetch', (_e, choices) => {
     const ids = buildTasks(choices, {}).map((t) => t.id).filter((id) => id === 'engine' || id.startsWith('model:'));
@@ -168,7 +177,7 @@ function register() {
     return { ok: true, data: ids };
   });
   ipcMain.handle('setup:run', (_e, { choices, force } = {}) => {
-    state.update({ choices, finished: false });
+    state.update({ choices: storable(choices), finished: false });
     const runner = runnerFor(choices, { force: force || [] });
     send({ type: 'plan', tasks: runner.plan() });
     return settle(runner.runAll().then((result) => {

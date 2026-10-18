@@ -11,6 +11,7 @@
 //   --build cpu|vulkan|cuda-12.8|cuda-13.4|rocm   engine build to download
 //   --llama-server PATH    use this llama-server instead of downloading one
 //   --remote URL           use a model server on another machine (OpenAI /v1 URL)
+//   --cloud PROVIDER/MODEL use a cloud model through pi; the key comes from LESLIE_CLOUD_API_KEY
 //   --model ID             Everyday model (see `probe`), --power ID|none
 //   --models-dir DIR       where models go
 //   --vision cuda|cpu|off  --speech cuda|cpu|off
@@ -69,6 +70,14 @@ async function choicesFrom(opts) {
   }
   if (opts['llama-server']) ch.engine = { mode: 'existing', binary: opts['llama-server'] };
   if (opts.remote) ch.engine = { mode: 'remote', url: opts.remote };
+  if (opts.cloud) {
+    const [provider, ...model] = String(opts.cloud).split('/');
+    if (!require('../src/main/pi/cloud').provider(provider) || !model.length) fail('--cloud takes provider/model, e.g. anthropic/claude-sonnet-4-5');
+    if (!process.env.LESLIE_CLOUD_API_KEY) fail('Set LESLIE_CLOUD_API_KEY to the provider API key.');
+    ch.engine = { mode: 'cloud', provider, model: model.join('/'), apiKey: process.env.LESLIE_CLOUD_API_KEY };
+    ch.everyday = '';
+    ch.power = '';
+  }
   if (opts.model) {
     if (!catalog.find(opts.model)) fail(`Unknown model ${opts.model}`);
     ch.everyday = opts.model;
@@ -130,7 +139,8 @@ async function cmdPlan(opts) {
   const { choices } = await choicesFrom(opts);
   const tasks = buildTasks(choices, ctxFrom(opts));
   console.log(c.bold('Choices'));
-  console.log(c.dim(JSON.stringify(choices, null, 2).split('\n').map((l) => `  ${l}`).join('\n')));
+  const shown = { ...choices, engine: { ...choices.engine, ...(choices.engine.apiKey ? { apiKey: '(set)' } : {}) } };
+  console.log(c.dim(JSON.stringify(shown, null, 2).split('\n').map((l) => `  ${l}`).join('\n')));
   console.log(`  about ${(downloadBytes(choices) / GB).toFixed(1)} GB to download`);
   console.log('');
   console.log(c.bold('Tasks'));
@@ -141,7 +151,8 @@ async function cmdPlan(opts) {
 
 async function cmdRun(opts) {
   const { choices } = await choicesFrom(opts);
-  state.update({ choices });
+  const { apiKey, ...engine } = choices.engine;
+  state.update({ choices: { ...choices, engine } });
   const runner = new Runner(buildTasks(choices, ctxFrom(opts)), { force: opts.force ? String(opts.force).split(',') : [] });
   const tasks = runner.tasks;
   let lastLine = '';

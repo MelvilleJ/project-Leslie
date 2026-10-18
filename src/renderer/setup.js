@@ -54,7 +54,7 @@ const STEPS = [
   { id: 'welcome', title: 'Welcome', render: renderWelcome },
   { id: 'check', title: 'System check', render: renderCheck, canNext: () => checks && !checks.checks.some((c) => c.required && c.status === 'missing') },
   { id: 'computer', title: 'Your computer', render: renderComputer, canNext: engineReady },
-  { id: 'brain', title: 'Her brain', render: renderBrain, canNext: () => choices.engine.mode === 'remote' || Boolean(choices.everyday), leave: startPrefetch },
+  { id: 'brain', title: 'Her brain', render: renderBrain, canNext: brainReady, leave: startPrefetch },
   { id: 'listening', title: 'Listening', render: renderListening, leave: stopMic },
   { id: 'voice', title: 'Her voice', render: renderVoice },
   { id: 'camera', title: 'Camera', render: renderCamera },
@@ -208,6 +208,7 @@ async function renderCheck() {
 
 function engineReady() {
   const e = choices.engine;
+  if (e.mode === 'cloud') return true;
   if (e.mode === 'remote') return Boolean(e.url && e.tested);
   if (e.mode === 'existing') return Boolean(e.binary);
   return Boolean(e.build);
@@ -309,11 +310,101 @@ function modelCards(tier, selected, onPick, { allowNone, exclude } = {}) {
   return grid;
 }
 
+function brainReady() {
+  const e = choices.engine;
+  if (e.mode === 'remote') return true;
+  if (e.mode === 'cloud') return Boolean(e.provider && e.apiKey && e.model);
+  return Boolean(choices.everyday);
+}
+
+let localEngine = null;
+
 async function renderBrain() {
   if (choices.engine.mode === 'remote') {
     return el('div', {}, heading('Her brain', `LESLIE will use the model server at ${choices.engine.url}, so there is nothing to download here.`));
   }
-  const wrap = el('div', {}, heading('Her brain', 'The model LESLIE thinks with. These fit your hardware; the recommended one is the best balance.'));
+  const wrap = el('div', {}, heading('Her brain', 'The model LESLIE thinks with.'));
+  const body = el('div', {});
+  const where = (mode) => {
+    if (mode === 'cloud' && choices.engine.mode !== 'cloud') {
+      localEngine = choices.engine;
+      choices.engine = { mode: 'cloud', provider: '', apiKey: '', model: '' };
+    } else if (mode === 'local' && choices.engine.mode === 'cloud') {
+      choices.engine = localEngine || { ...info.defaults.engine };
+    }
+    draw();
+    refreshNav();
+  };
+  const draw = () => {
+    body.innerHTML = '';
+    body.append(choices.engine.mode === 'cloud' ? cloudPicker() : localPicker());
+  };
+  const mode = choices.engine.mode === 'cloud' ? 'cloud' : 'local';
+  wrap.append(
+    radio('where', 'local', mode, 'On this computer (recommended)', 'Private, and free to run once the model is downloaded.', () => where('local')),
+    radio('where', 'cloud', mode, 'With a cloud provider', 'Needs an API key (Anthropic, OpenAI, Google…). Quick on modest hardware, but conversations go to that provider.', () => where('cloud')),
+    body);
+  draw();
+  return wrap;
+}
+
+function cloudPicker() {
+  const e = choices.engine;
+  const wrap = el('div', {});
+  const provider = el('select', {}, el('option', { value: '', text: 'Choose a provider' }));
+  const key = el('input', { type: 'password', value: e.apiKey || '', placeholder: 'API key', autocomplete: 'off' });
+  const check = el('button', { class: 'btn small', type: 'button', text: 'Show models' });
+  const note = el('p', { class: 'note', text: 'The key is kept in your desktop keyring.' });
+  const model = el('select', { class: e.model ? '' : 'hidden' }, e.model ? el('option', { value: e.model, text: e.model }) : null);
+  api.cloudProviders().then((res) => {
+    for (const p of res.data || []) {
+      const o = el('option', { value: p.id, text: p.label });
+      o.selected = p.id === e.provider;
+      provider.append(o);
+    }
+  });
+  const reset = () => {
+    e.model = '';
+    model.classList.add('hidden');
+    refreshNav();
+  };
+  provider.addEventListener('change', () => { e.provider = provider.value; reset(); });
+  key.addEventListener('input', () => { e.apiKey = key.value.trim(); reset(); });
+  model.addEventListener('change', () => { e.model = model.value; refreshNav(); });
+  check.addEventListener('click', async () => {
+    if (!e.provider || !e.apiKey) {
+      note.className = 'note err';
+      note.textContent = 'Choose a provider and paste its API key first.';
+      return;
+    }
+    check.disabled = true;
+    note.className = 'note';
+    note.textContent = 'Looking up the models…';
+    const res = await api.cloudModels(e.provider, e.apiKey);
+    check.disabled = false;
+    if (!res.ok || !res.data.length) {
+      note.className = 'note err';
+      note.textContent = res.ok ? 'pi lists no models for this provider.' : res.error;
+      return;
+    }
+    model.innerHTML = '';
+    for (const m of res.data) model.append(el('option', { value: m.id, text: `${m.id}${m.images ? ' (sees images)' : ''}` }));
+    e.model = res.data[0].id;
+    model.classList.remove('hidden');
+    note.className = 'note ok';
+    note.textContent = `${res.data.length} models. Pick one; the key is first used when LESLIE answers, so a wrong key shows up then.`;
+    refreshNav();
+  });
+  wrap.append(
+    el('label', { class: 'field' }, el('span', { text: 'Provider' }), provider),
+    el('div', { class: 'field' }, el('span', { text: 'API key' }), el('div', { class: 'row' }, key, check)),
+    note,
+    el('label', { class: 'field' }, el('span', { text: 'Model' }), model));
+  return wrap;
+}
+
+function localPicker() {
+  const wrap = el('div', {}, el('p', { class: 'note', text: 'These fit your hardware; the recommended one is the best balance.' }));
   const sizeNote = el('p', { class: 'note' });
   const updateSize = async () => {
     const r = await api.downloadBytes(choices);
@@ -343,7 +434,7 @@ async function renderBrain() {
 }
 
 function startPrefetch(delta) {
-  if (delta < 0 || choices.engine.mode === 'remote') return;
+  if (delta < 0 || ['remote', 'cloud'].includes(choices.engine.mode)) return;
   const key = JSON.stringify([choices.engine, choices.everyday, choices.power, choices.modelsDir]);
   if (prefetched.has(key)) return;
   prefetched.add(key);

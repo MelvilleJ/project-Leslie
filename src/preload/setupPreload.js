@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('setupApi', {
   /** { kind: 'searxng' | 'server', url } → { ok, error?, models? } */
   testUrl: (kind, url) => ipcRenderer.invoke('setup:test-url', { kind, url }),
   save: (choices) => ipcRenderer.invoke('setup:save', choices),
+  cloudProviders: () => ipcRenderer.invoke('setup:cloud-providers'),
+  /** Resolves { ok, data: [{ id, context, images }] } once the key works. */
+  cloudModels: (provider, apiKey) => ipcRenderer.invoke('setup:cloud-models', { provider, apiKey }),
   prefetch: (choices) => ipcRenderer.invoke('setup:prefetch', choices),
   run: (choices, force) => ipcRenderer.invoke('setup:run', { choices, force }),
   cancel: () => ipcRenderer.invoke('setup:cancel'),

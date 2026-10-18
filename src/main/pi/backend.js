@@ -15,6 +15,7 @@ const { toolDetail } = require('../agent/toolDetail');
 const { extractMemories } = require('../agent/reflect');
 const { PiRpcClient } = require('./rpcClient');
 const launcher = require('./launcher');
+const cloud = require('./cloud');
 const { createBridge } = require('./bridge');
 const policy = require('./policy');
 const sessions = require('./sessions');
@@ -133,7 +134,7 @@ function piArgs({ task = false } = {}) {
 // when pi uses the "leslie" provider built from them.
 function signature() {
   const leslieServer = config.piModel === 'leslie' ? [config.baseURL, config.model, config.apiKey, config.contextTokens] : [];
-  return JSON.stringify([config.piCommand, config.piModel, policy.cwd(), ...leslieServer]);
+  return JSON.stringify([config.piCommand, config.piModel, policy.cwd(), config.cloudProvider, config.cloudApiKey, ...leslieServer]);
 }
 
 function friendlyError(reason) {
@@ -222,7 +223,7 @@ function newClient(opts) {
     prefix: pi.prefix,
     args: piArgs(opts),
     cwd: policy.cwd(),
-    env: { ...process.env, ...pi.env, LESLIE_BRIDGE: bridge.address, LESLIE_PI_MANIFEST: writeManifest() }
+    env: { ...process.env, ...pi.env, ...cloud.envFor(), LESLIE_BRIDGE: bridge.address, LESLIE_PI_MANIFEST: writeManifest() }
   });
   c.on('ui-request', (req) => {
     uiOwners.set(req.id, c);
@@ -246,7 +247,7 @@ async function helperLaunch() {
     prefix: pi.prefix,
     extension: EXTENSION_PATH,
     cwd: policy.cwd(),
-    env: { ...process.env, ...pi.env, LESLIE_BRIDGE: bridge.address, LESLIE_PI_MANIFEST: writeManifest() }
+    env: { ...process.env, ...pi.env, ...cloud.envFor(), LESLIE_BRIDGE: bridge.address, LESLIE_PI_MANIFEST: writeManifest() }
   };
 }
 

@@ -206,3 +206,16 @@ test('downloads resume from a .part file and check the sha256', async () => {
     srv.close();
   }
 });
+
+test('a cloud model points pi at provider/model and keeps the key out of the task keys', () => {
+  const c = { engine: { mode: 'cloud', provider: 'anthropic', model: 'claude-sonnet-4-5', apiKey: 'sk-secret' }, speech: { enabled: false }, settings: {} };
+  const s = settingsFor(c);
+  assert.equal(s.piModel, 'anthropic/claude-sonnet-4-5');
+  assert.equal(s.cloudProvider, 'anthropic');
+  assert.equal(s.cloudApiKey, 'sk-secret');
+  assert.equal(s.serverManaged, false);
+  const { buildTasks } = require('../src/main/setup/tasks');
+  const tasks = buildTasks({ ...c, everyday: '', power: '', tiers: {}, packages: [], vision: { enabled: false } }, { setSettings() {} });
+  assert.deepEqual(tasks.map((t) => t.id), ['settings'], 'no engine, models or router for a cloud model');
+  assert.ok(!JSON.stringify(tasks.map((t) => t.key)).includes('sk-secret'));
+});

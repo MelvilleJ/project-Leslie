@@ -5,7 +5,8 @@
 // re-running resumes, retries or repairs instead of starting over.
 //
 // choices:
-//   engine    { mode: 'download' | 'existing' | 'remote', build, binary, url }
+//   engine    { mode: 'download' | 'existing' | 'remote' | 'cloud', build, binary, url,
+//               provider, model, apiKey (cloud) }
 //   everyday  catalog model id, power: catalog model id or ''
 //   tiers     { everyday, power } from hardware.tiers
 //   modelsDir where the GGUFs go
@@ -72,7 +73,9 @@ function settingsFor(c) {
   const out = { ...(c.settings || {}) };
   if (c.persona && !out.systemPrompt) out.systemPrompt = persona.systemPrompt(c.persona);
   if (c.engine.mode === 'remote') Object.assign(out, { serverManaged: false, baseURL: c.engine.url });
-  else Object.assign(out, { serverManaged: true });
+  else if (c.engine.mode === 'cloud') {
+    Object.assign(out, { serverManaged: false, piModel: `${c.engine.provider}/${c.engine.model}`, cloudProvider: c.engine.provider, cloudApiKey: c.engine.apiKey || '' });
+  } else Object.assign(out, { serverManaged: true });
   if (c.speech && c.speech.enabled) Object.assign(out, { sttBackend: 'server', sttServerUrl: `http://127.0.0.1:${units.PORTS.speech}/v1` });
   else if (!c.adopt) out.sttBackend = 'local';
   if (c.vision) out.cameraEnabled = Boolean(c.vision.enabled);
@@ -87,7 +90,7 @@ function settingsFor(c) {
 function buildTasks(c, ctx = {}) {
   const tasks = [];
   const add = (t) => tasks.push({ deps: [], optional: false, key: null, ...t });
-  const local = c.engine.mode !== 'remote' && !c.adopt;
+  const local = !['remote', 'cloud'].includes(c.engine.mode) && !c.adopt;
   const modelsDir = c.modelsDir || path.join(paths.MODELS, 'llm');
   const signal = ctx.signal;
 
@@ -161,7 +164,8 @@ function buildTasks(c, ctx = {}) {
     startDeps.push('speech');
   }
 
-  add({ id: 'settings', label: 'Saving your preferences', key: settingsFor(c),
+  // No key: it would put a cloud API key into setup-state.json, and saving is cheap to repeat.
+  add({ id: 'settings', label: 'Saving your preferences',
     run: () => ctx.setSettings(settingsFor(c)) });
 
   if (c.startAtLogin && ctx.appExec) {

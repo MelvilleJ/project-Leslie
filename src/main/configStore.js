@@ -4,6 +4,7 @@ const { safeStorage } = require('electron');
 const config = require('./config');
 const settings = require('./settings');
 const { VOICES } = require('./tts/voices');
+const { PROVIDERS } = require('./pi/cloud');
 
 const SCHEMA = [
   { key: 'piModel', type: 'string', group: 'Connection', label: 'pi model',
@@ -13,6 +14,11 @@ const SCHEMA = [
   { key: 'piCwd', type: 'string', group: 'Connection', label: 'pi working folder',
     help: 'Where pi runs and stores sessions. Blank = your home folder.' },
 
+  { key: 'cloudProvider', type: 'select', group: 'Connection', label: 'Cloud provider',
+    options: [{ value: '', label: 'None (local models only)' }, ...PROVIDERS.map((p) => ({ value: p.id, label: p.label }))],
+    help: "Its key below is given to pi; set pi model to provider/model, e.g. anthropic/claude-sonnet-4-5." },
+  { key: 'cloudApiKey', type: 'password', group: 'Connection', label: 'Cloud API key',
+    help: "Kept in your desktop keyring. pi's own /login works too." },
   { key: 'serverManaged', type: 'boolean', group: 'Connection', label: 'LESLIE manages the model server',
     help: 'Runs llama.cpp for you (Settings → Models & GPUs) and uses it automatically. Turn off to use the URL and model below.' },
   { key: 'baseURL', type: 'string', group: 'Connection', label: 'Server base URL',

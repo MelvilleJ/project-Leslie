@@ -44,6 +44,9 @@ module.exports = {
   // Blank uses pi's own default model; 'leslie' uses the server configured below.
   piModel: env.LESLIE_PI_MODEL || '',
   piCwd: env.LESLIE_PI_CWD || '',
+  // A cloud provider's API key, handed to pi in that provider's variable (pi/cloud.js).
+  cloudProvider: env.LESLIE_CLOUD_PROVIDER || '',
+  cloudApiKey: env.LESLIE_CLOUD_API_KEY || '',
 
   // LESLIE drives the shared llama-router user service and points itself at
   // it; off = use LESLIE_BASE_URL / LESLIE_MODEL as given.

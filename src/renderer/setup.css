@@ -67,7 +67,7 @@ input[type="range"] { accent-color: var(--accent); }
 
 .field { display: grid; grid-template-columns: 200px 1fr; gap: 12px; align-items: center; margin: 10px 0; max-width: 680px; }
 .field > span { color: var(--text-dim); font-size: 0.88rem; }
-.field input[type="text"], .field input[type="url"], .field select, .field textarea {
+.field input[type="text"], .field input[type="url"], .field input[type="password"], .field select, .field textarea {
   width: 100%; font: inherit; color: var(--text); background: rgba(0, 0, 0, 0.25);
   border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
 }
