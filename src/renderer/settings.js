@@ -746,6 +746,94 @@ async function buildAbout() {
     row('Tools', v.toolsEnabled ? 'enabled' : 'disabled'),
     row('Tip', 'Changes here apply live and persist across restarts (layered over .env).')
   );
+  buildMaintenance(about);
+}
+
+const SECTION_LABEL = { models: 'Models', voice: 'Voice', camera: 'Camera' };
+
+async function buildMaintenance(about) {
+  const res = await api.maintain.status();
+  if (!res.ok) return;
+  const st = res.data;
+  const log = el('div', { class: 'muted small hidden', style: 'white-space:pre-wrap;margin-top:6px' });
+  const say = (text) => {
+    log.classList.remove('hidden');
+    log.textContent = text;
+  };
+  const off = api.maintain.onEvent((ev) => {
+    if (ev.type === 'progress' && ev.text) say(`${ev.text}${ev.fraction !== undefined ? ` (${Math.round(ev.fraction * 100)}%)` : ''}`);
+    else if (ev.type === 'task' && ev.status === 'failed') say(`${ev.id}: ${ev.error}`);
+  });
+  const field = (name, help, ...controls) => el('div', { class: 'field' },
+    el('div', { class: 'field-label' }, el('span', { class: 'name', text: name }), help ? el('span', { class: 'help', text: help }) : null),
+    el('div', { class: 'field-control' }, ...controls));
+  const action = (label, fn, cls = 'btn') => {
+    const b = el('button', { class: cls, type: 'button', text: label });
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await fn();
+      } finally {
+        b.disabled = false;
+      }
+    });
+    return b;
+  };
+  const report = (r, okText) => {
+    if (r.ok) toast(okText);
+    else toast(r.error, true);
+    if (!r.ok) say(r.error);
+  };
+
+  const summary = st.ranSetup
+    ? `${st.finished ? 'Set up with the guided setup.' : 'Setup has not finished.'}${st.failed.length ? ` ${st.failed.length} step(s) failed last time.` : ''}`
+    : st.adopted ? 'Your own setup, kept as it was.' : 'Set up by hand (the guided setup has not run).';
+  about.append(el('h3', { text: 'Setup', style: 'margin:18px 18px 4px' }),
+    field('Guided setup', summary, action('Run setup again', () => api.maintain.rerun())));
+
+  if (st.ranSetup) {
+    const repairs = st.sections.map((s) => action(SECTION_LABEL[s] || s, async () => {
+      say(`Repairing ${SECTION_LABEL[s] || s}…`);
+      const r = await api.maintain.repair(s);
+      report(r.ok && r.data && !r.data.ok ? { ok: false, error: 'Some steps failed; see above.' } : r, `${SECTION_LABEL[s] || s} repaired`);
+    }));
+    about.append(field('Repair', 'Re-download and reinstall one part, keeping your settings.', ...repairs));
+  }
+
+  const engine = st.engine.managed === false
+    ? field('Model engine', `Your own llama-server (${st.engine.binary}); updates are up to you.`)
+    : field('Model engine', st.engine.updateAvailable
+      ? `llama.cpp ${st.engine.tag} (${st.engine.build}); this release is tested with ${st.engine.pinned}.`
+      : `llama.cpp ${st.engine.tag} (${st.engine.build}), up to date.`,
+    st.engine.updateAvailable ? action(`Update to ${st.engine.pinned}`, async () => {
+      say('Updating the engine…');
+      report(await api.maintain.updateEngine(), 'Engine updated');
+      off();
+      buildAbout();
+    }) : null);
+  about.append(engine);
+
+  const gbText = (n) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+  const models = el('input', { type: 'checkbox' });
+  const personal = el('input', { type: 'checkbox' });
+  const confirmBox = el('div', { class: 'hidden small', style: 'flex-direction:column;align-items:flex-start;gap:8px;padding:0 18px 14px' },
+    el('label', {}, models, ` Also delete the downloaded models (${gbText(st.modelsBytes)})`),
+    el('label', {}, personal, ' Also delete my settings, memories, conversations and enrolled faces'),
+    action('Yes, uninstall', async () => {
+      say('Uninstalling…');
+      const r = await api.maintain.uninstall({ models: models.checked, personal: personal.checked });
+      if (r.ok) say('Done. LESLIE will close now; remove the app itself with your package manager.');
+      else report(r);
+    }, 'btn danger'));
+  const start = action('Uninstall…', () => {
+    confirmBox.classList.toggle('hidden');
+    confirmBox.style.display = confirmBox.classList.contains('hidden') ? '' : 'flex';
+  }, 'btn danger');
+  if (st.ranSetup || st.downloadsBytes || st.modelsBytes) {
+    about.append(field('Uninstall', `Stops and removes the services and downloads setup added (${gbText(st.downloadsBytes)}). pi and its sessions are not touched.`, start), confirmBox);
+  }
+  log.style.padding = '0 18px 14px';
+  about.append(log);
 }
 
 // --- Animations -------------------------------------------------------------

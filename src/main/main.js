@@ -1310,6 +1310,7 @@ app.whenReady().then(() => {
     setup.open();
     return;
   }
+  setup.registerMaintenance((ev) => toSettings('maintain:event', ev));
   contextWindow.refresh();
   permissions.init({ icon: APP_ICON });
   forwardPiEvents();

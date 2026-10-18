@@ -48,6 +48,21 @@ contextBridge.exposeInMainWorld('settingsApi', {
       return () => ipcRenderer.removeListener('server:event', l);
     }
   },
+  /** Setup upkeep; each resolves { ok, data | error }. */
+  maintain: {
+    status: () => ipcRenderer.invoke('maintain:status'),
+    rerun: () => ipcRenderer.invoke('maintain:rerun'),
+    repair: (section) => ipcRenderer.invoke('maintain:repair', section),
+    updateEngine: () => ipcRenderer.invoke('maintain:update-engine'),
+    /** { models, personal } */
+    uninstall: (opts) => ipcRenderer.invoke('maintain:uninstall', opts),
+    /** { type: 'task' | 'progress', id, ... } */
+    onEvent: (cb) => {
+      const l = (_e, ev) => cb(ev || {});
+      ipcRenderer.on('maintain:event', l);
+      return () => ipcRenderer.removeListener('maintain:event', l);
+    }
+  },
   onShowPanel: (cb) => {
     const l = (_e, panel) => cb(panel);
     ipcRenderer.on('settings:show-panel', l);

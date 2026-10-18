@@ -219,3 +219,33 @@ test('a cloud model points pi at provider/model and keeps the key out of the tas
   assert.deepEqual(tasks.map((t) => t.id), ['settings'], 'no engine, models or router for a cloud model');
   assert.ok(!JSON.stringify(tasks.map((t) => t.key)).includes('sk-secret'));
 });
+
+test('maintenance knows a setup-installed engine from a hand-built one', () => {
+  const maintain = require('../src/main/setup/maintain');
+  const paths = require('../src/main/setup/paths');
+  const ours = path.join(paths.ENGINES, 'llama.cpp', 'b11000-vulkan', 'llama-b11000', 'llama-server');
+  assert.deepEqual(maintain.engineOf(ours), { tag: 'b11000', build: 'vulkan' });
+  assert.equal(maintain.engineOf('/usr/bin/llama-server'), null);
+  assert.equal(maintain.engineOf(''), null);
+});
+
+test('repair refuses an install setup did not make, and uninstall keeps models unless asked', async () => {
+  const maintain = require('../src/main/setup/maintain');
+  const paths = require('../src/main/setup/paths');
+  fs.rmSync(state.file(), { force: true });
+  assert.throws(() => maintain.repair('models', {}), /not made by setup/);
+
+  for (const dir of [paths.ENGINES, paths.SIDECARS, path.join(paths.MODELS, 'llm')]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'f'), 'x');
+  }
+  // No unit tasks recorded, so nothing touches systemd.
+  state.save({ ...state.fresh(), finished: true, tasks: { engine: { status: 'done' } } });
+  await maintain.uninstall({});
+  assert.equal(fs.existsSync(paths.ENGINES), false);
+  assert.equal(fs.existsSync(paths.SIDECARS), false);
+  assert.ok(fs.existsSync(path.join(paths.MODELS, 'llm', 'f')), 'models stay');
+  assert.equal(state.load().finished, false, 'the next launch offers setup again');
+  await maintain.uninstall({ models: true });
+  assert.equal(fs.existsSync(paths.MODELS), false);
+});

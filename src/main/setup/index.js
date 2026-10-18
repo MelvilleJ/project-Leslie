@@ -19,6 +19,7 @@ const desktop = require('./desktop');
 const { defaultChoices, downloadBytes } = require('./recommend');
 const { buildTasks, Runner } = require('./tasks');
 const { run } = require('./exec');
+const maintain = require('./maintain');
 
 const ROOT = path.join(__dirname, '..', '..', '..');
 
@@ -199,6 +200,40 @@ function register() {
   });
 }
 
+let maintaining = null;
+
+/** Settings → About: setup status, repair, engine update, uninstall. Events go to `notify`. */
+function registerMaintenance(notify) {
+  const configStore = () => require('../configStore');
+  const ctx = () => ({
+    appExec: appExec(),
+    setSettings: (values) => {
+      for (const [key, value] of Object.entries(values)) configStore().set(key, value);
+    }
+  });
+  const exclusive = (label, fn) => {
+    if (maintaining) return Promise.resolve({ ok: false, error: `${maintaining} is still running.` });
+    maintaining = label;
+    return settle(Promise.resolve().then(fn)).finally(() => { maintaining = null; });
+  };
+  ipcMain.handle('maintain:status', () => settle(Promise.resolve().then(() => ({ ...maintain.status(), ...maintain.uninstallPlan(), busy: maintaining }))));
+  ipcMain.handle('maintain:rerun', () => {
+    app.relaunch({ args: [...process.argv.slice(1).filter((a) => a !== '--setup'), '--setup'] });
+    app.exit(0);
+  });
+  ipcMain.handle('maintain:repair', (_e, section) => exclusive(`Repairing ${section}`, async () => {
+    const { runner } = maintain.repair(section, ctx());
+    runner.on('event', notify);
+    return runner.runAll();
+  }));
+  ipcMain.handle('maintain:update-engine', () => exclusive('The engine update', () =>
+    maintain.updateEngine((p) => notify({ type: 'progress', id: 'engine', ...p, fraction: p.total ? p.done / p.total : undefined }))));
+  ipcMain.handle('maintain:uninstall', (_e, opts) => exclusive('Uninstalling', async () => {
+    await maintain.uninstall(opts || {});
+    setTimeout(() => app.exit(0), 1500);
+  }));
+}
+
 function open() {
   register();
   win = new BrowserWindow({
@@ -226,4 +261,4 @@ function open() {
   return win;
 }
 
-module.exports = { shouldRun, open, paths };
+module.exports = { shouldRun, open, registerMaintenance, paths };
