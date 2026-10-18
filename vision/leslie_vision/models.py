@@ -16,15 +16,16 @@ ARCFACE_DST = np.array(
 
 
 def session(path):
-    if hasattr(ort, "preload_dlls"):
+    cuda = "CUDAExecutionProvider" in ort.get_available_providers()
+    if cuda and hasattr(ort, "preload_dlls"):
         # Loads the CUDA/cuDNN libraries shipped as pip wheels instead of the system CUDA.
         try:
             ort.preload_dlls()
         except Exception as err:  # noqa: BLE001
             log.warning("could not preload CUDA libraries: %s", err)
-    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if cuda else ["CPUExecutionProvider"]
     sess = ort.InferenceSession(str(path), providers=providers)
-    if "CUDAExecutionProvider" not in sess.get_providers():
+    if cuda and "CUDAExecutionProvider" not in sess.get_providers():
         log.warning("%s is running on the CPU; CUDA is unavailable", path)
     return sess
 

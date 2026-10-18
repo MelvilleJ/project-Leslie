@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Camera presence for LESLIE: install the vision sidecar (SCRFD + ArcFace from
-# InsightFace's buffalo_l, on the RTX 3060 via onnxruntime-gpu) and run it as the
-# leslie-vision user service on 127.0.0.1:8179.
+# InsightFace's buffalo_l, via onnxruntime on an NVIDIA GPU or the CPU) and run it
+# as the leslie-vision user service on 127.0.0.1:8179.
+# VISION_RUNTIME=cuda|cpu overrides the choice (default: cuda when nvidia-smi works).
 # Idempotent: skips the download steps that are already done.
 set -euo pipefail
 
@@ -13,9 +14,20 @@ UNIT="$HOME/.config/systemd/user/leslie-vision.service"
 
 command -v uv >/dev/null || { echo "uv is required (pacman -S uv)"; exit 1; }
 
-echo "→ python environment in $VENV"
+if [ -z "${VISION_RUNTIME:-}" ]; then
+  if nvidia-smi -L >/dev/null 2>&1; then VISION_RUNTIME=cuda; else VISION_RUNTIME=cpu; fi
+fi
+case "$VISION_RUNTIME" in
+  cuda) other=onnxruntime ;;
+  cpu) other=onnxruntime-gpu ;;
+  *) echo "VISION_RUNTIME must be cuda or cpu" >&2; exit 1 ;;
+esac
+
+echo "→ python environment in $VENV ($VISION_RUNTIME)"
 uv venv -q --allow-existing --python 3.12 "$VENV"
-VIRTUAL_ENV="$VENV" uv pip install -q --reinstall-package leslie-vision "$ROOT/vision"
+# Both packages provide the onnxruntime module, so drop the other one first.
+VIRTUAL_ENV="$VENV" uv pip uninstall -q "$other" 2>/dev/null || true
+VIRTUAL_ENV="$VENV" uv pip install -q --reinstall-package leslie-vision "$ROOT/vision[$VISION_RUNTIME]"
 
 if [ ! -f "$MODEL_DIR/det_10g.onnx" ] || [ ! -f "$MODEL_DIR/w600k_r50.onnx" ]; then
   echo "→ downloading InsightFace buffalo_l"
@@ -43,7 +55,7 @@ cat > "$UNIT" <<EOF
 [Unit]
 Description=LESLIE camera presence (face detection + recognition)
 # Start before the model server so llama.cpp's --fit sizes the Everyday model
-# around the ~1 GB the vision models keep on the RTX 3060.
+# around the ~1 GB the vision models keep on the GPU.
 Before=llama-router.service
 
 [Service]

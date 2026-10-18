@@ -10,7 +10,9 @@ MODEL_DIR="$HOME/models/whisper"
 MODEL="ggml-large-v3-turbo-q5_0"
 PORT=8178
 UNIT="$HOME/.config/systemd/user/leslie-whisper.service"
-CUDA_ARCH="${CUDA_ARCH:-86}"   # RTX 3060
+# The first NVIDIA GPU's compute capability, e.g. 8.6 → 86.
+CUDA_ARCH="${CUDA_ARCH:-$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '. ')}"
+[ -n "$CUDA_ARCH" ] || { echo "No NVIDIA GPU found; set CUDA_ARCH or use the in-app speech recognition (Settings → Voice)" >&2; exit 1; }
 
 if [ ! -d "$SRC" ]; then
   tag=$(git ls-remote --tags --refs https://github.com/ggml-org/whisper.cpp.git | awk -F/ '{print $3}' |
@@ -38,7 +40,7 @@ cat > "$UNIT" <<EOF
 [Unit]
 Description=LESLIE speech recognition (whisper.cpp, $MODEL)
 # Start before the model server so llama.cpp's --fit sizes the Everyday model
-# around the ~0.9 GB whisper keeps on the RTX 3060.
+# around the ~0.9 GB whisper keeps on the GPU.
 Before=llama-router.service
 
 [Service]

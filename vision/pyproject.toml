@@ -6,8 +6,12 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
   "numpy>=1.26",
   "opencv-python-headless>=4.10",
-  "onnxruntime-gpu[cuda,cudnn]>=1.21",
 ]
+
+# Install exactly one: both provide the onnxruntime module.
+[project.optional-dependencies]
+cuda = ["onnxruntime-gpu[cuda,cudnn]>=1.21"]
+cpu = ["onnxruntime>=1.21"]
 
 [dependency-groups]
 dev = ["pytest>=8"]
