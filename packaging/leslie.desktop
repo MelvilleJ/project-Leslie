@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=LESLIE
+Comment=Desktop AI companion
+Exec=leslie
+Icon=leslie
+Categories=Utility;
+StartupWMClass=project-leslie

@@ -12,6 +12,7 @@
     "pack": "npm run build:voice && electron-builder --dir",
     "dist": "npm run build:voice && electron-builder --win nsis",
     "build:linux": "npm run build:voice && electron-builder --linux dir",
+    "dist:linux": "npm run build:voice && electron-builder --linux tar.gz",
     "install:linux": "npm run build:linux && bash scripts/install-linux.sh",
     "test": "node --test test/"
   },

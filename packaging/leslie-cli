@@ -1,0 +1,7 @@
+#!/bin/sh
+# Runs one of LESLIE's terminal tools (leslie-setup, leslie-server) on the
+# app's own Electron in Node mode, from inside app.asar where every module it
+# needs resolves, so no system Node is required. Installed under each tool's
+# name; LESLIE_HOME points at the unpacked app (default /usr/lib/leslie).
+here="${LESLIE_HOME:-/usr/lib/leslie}"
+ELECTRON_RUN_AS_NODE=1 exec "$here/leslie" "$here/resources/app.asar/bin/$(basename "$0")" "$@"

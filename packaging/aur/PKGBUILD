@@ -1,0 +1,49 @@
+# Maintainer: MelvilleJ
+pkgname=leslie
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Desktop AI companion: a GUI for the pi agent with local models, voice and camera presence'
+arch=('x86_64')
+url='https://github.com/MelvilleJ/project-Leslie'
+license=('MIT')
+depends=('gtk3' 'nss' 'alsa-lib' 'libxss' 'libnotify' 'systemd' 'curl' 'polkit')
+makedepends=('git' 'npm')
+optdepends=(
+  'vulkan-icd-loader: run models on AMD or Intel GPUs'
+  'vulkan-radeon: Vulkan driver for AMD GPUs'
+  'vulkan-intel: Vulkan driver for Intel GPUs'
+  'nvidia-utils: run models and speech on NVIDIA GPUs'
+  'pipewire-pulse: voice and desktop audio'
+  'grim: screenshots'
+  'slurp: screenshots of a region'
+  'wf-recorder: screen recording'
+  'playerctl: media control'
+  'mpv: playing videos'
+  'yt-dlp: playing online videos'
+  'wl-clipboard: copying to the clipboard'
+  'v4l-utils: camera exposure control'
+  'hyprland: home display and window control'
+)
+options=('!strip' '!debug')
+source=("$pkgname::git+$url.git#tag=v$pkgver")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname"
+  npm ci
+  npm run build:linux
+}
+
+package() {
+  cd "$pkgname"
+  install -d "$pkgdir/usr/lib/leslie" "$pkgdir/usr/bin"
+  cp -a dist/linux-unpacked/. "$pkgdir/usr/lib/leslie/"
+  ln -s /usr/lib/leslie/leslie "$pkgdir/usr/bin/leslie"
+  for tool in leslie-setup leslie-server; do
+    install -Dm755 packaging/leslie-cli "$pkgdir/usr/bin/$tool"
+  done
+  install -Dm644 packaging/leslie.desktop "$pkgdir/usr/share/applications/leslie.desktop"
+  for size in 16 22 24 32 48 64 128 256 512; do
+    install -Dm644 "assets/icons/leslie-$size.png" "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/leslie.png"
+  done
+}

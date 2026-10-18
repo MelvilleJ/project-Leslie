@@ -23,9 +23,13 @@ mkdir -p "$(dirname "$DEST")"
 rm -rf "${DEST:?}"
 cp -a "$BUILD" "$DEST"
 
-UNPACKED="$DEST/resources/app.asar.unpacked"
 ln -sf "$DEST/leslie" "$BIN/leslie"
-ln -sf "$UNPACKED/bin/leslie-server" "$BIN/leslie-server"
+# The terminal tools run on the app's own Electron, so no system Node is needed.
+for tool in leslie-setup leslie-server; do
+  rm -f "$BIN/$tool"
+  sed "s#/usr/lib/leslie#$DEST#" "$ROOT/packaging/leslie-cli" > "$BIN/$tool"
+  chmod +x "$BIN/$tool"
+done
 
 echo "→ icons"
 for size in 16 22 24 32 48 64 128 256 512; do
