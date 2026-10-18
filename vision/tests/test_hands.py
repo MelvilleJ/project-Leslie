@@ -75,3 +75,12 @@ def test_exposure_steps_towards_target():
     assert next_setting(60, 100, 0) == (200, 0)
     assert next_setting(105, 300, 40) == (300, 40)
     assert next_setting(200, 100, 0) == (100, 0)
+
+
+def test_control_defaults_parse_v4l2_listing():
+    from leslie_vision.exposure import control_defaults
+    listing = """                           gain 0x00980913 (int)    : min=0 max=100 step=1 default=0 value=100 flags=has-min-max
+                     brightness 0x00980900 (int)    : min=-64 max=64 step=1 default=6 value=6
+                  auto_exposure 0x009a0901 (menu)   : min=0 max=3 default=3 value=1 (Manual Mode)
+"""
+    assert control_defaults(listing) == {"gain": "0", "brightness": "6", "auto_exposure": "3"}

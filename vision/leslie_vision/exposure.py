@@ -7,6 +7,7 @@ brightness is chased with gain, shortening the exposure only in bright light.
 """
 
 import logging
+import re
 import shutil
 import subprocess
 
@@ -30,6 +31,15 @@ def next_setting(brightness, exposure, gain):
         if exposure != EXPOSURES[-1]:
             return EXPOSURES[EXPOSURES.index(exposure) + 1], gain
     return exposure, gain
+
+
+RESTORED = ("auto_exposure", "exposure_dynamic_framerate", "exposure_time_absolute", "gain")
+
+
+def control_defaults(listing):
+    """{control: default} from `v4l2-ctl -l` output."""
+    found = re.finditer(r"^\s*(\w+) 0x[0-9a-f]+ \(\w+\)\s*:.*?\bdefault=(-?\d+)", listing, re.M)
+    return {m.group(1): m.group(2) for m in found}
 
 
 class Exposure:
@@ -57,5 +67,11 @@ class Exposure:
             self.exposure, self.gain = exposure, gain
 
     def stop(self):
-        """Hand the camera back to its own auto-exposure for other apps."""
-        self._set("auto_exposure=3")
+        """Hand the camera back as other apps expect it. The controls live in the
+        camera itself, so a gain left high here would wash out every other app."""
+        if not self.available:
+            return
+        res = subprocess.run(["v4l2-ctl", "-d", self.device, "-l"], capture_output=True, text=True)
+        defaults = control_defaults(res.stdout)
+        controls = ",".join(f"{name}={defaults[name]}" for name in RESTORED if name in defaults)
+        self._set(controls or "auto_exposure=3")
