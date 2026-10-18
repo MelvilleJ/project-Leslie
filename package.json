@@ -53,7 +53,6 @@
     "asarUnpack": [
       "src/pi-extension/**",
       "src/main/server/**",
-      "bin/**",
       "scripts/**",
       "vision/**",
       "speech/**",
