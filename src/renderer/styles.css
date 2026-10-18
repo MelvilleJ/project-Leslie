@@ -493,10 +493,18 @@ button.pi-chip:hover { color: var(--text); border-color: color-mix(in srgb, var(
   text-overflow: ellipsis;
 }
 
-/* --- Pasted image attachments -------------------------------------------- */
+/* --- Image attachments ------------------------------------------------------ */
 #attachments { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
 .attachment { position: relative; }
-.attachment img { height: 44px; border-radius: 6px; border: 1px solid var(--line); display: block; }
+.attachment img { height: 44px; border-radius: 6px; border: 1px solid var(--line); display: block; cursor: zoom-in; }
+.msg-images { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.msg-images img { max-height: 96px; max-width: 160px; border-radius: 6px; border: 1px solid var(--line); cursor: zoom-in; object-fit: cover; }
+#panel.dropping { outline: 2px dashed var(--accent); outline-offset: -4px; }
+.lightbox {
+  position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.8); cursor: zoom-out;
+}
+.lightbox img { max-width: 94vw; max-height: 94vh; border-radius: 8px; }
 .attachment button {
   position: absolute; top: -6px; right: -6px; width: 16px; height: 16px;
   border-radius: 50%; border: none; background: var(--panel); color: var(--text);

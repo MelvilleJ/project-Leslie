@@ -297,7 +297,15 @@ async function getState() {
   const model = state && state.model;
   const usage = stats && stats.contextUsage;
   return {
-    model: model ? { provider: model.provider, id: model.id, name: model.name || model.id, reasoning: Boolean(model.reasoning) } : null,
+    model: model
+      ? {
+          provider: model.provider,
+          id: model.id,
+          name: model.name || model.id,
+          reasoning: Boolean(model.reasoning),
+          vision: Array.isArray(model.input) && model.input.includes('image')
+        }
+      : null,
     thinkingLevel: state && state.thinkingLevel,
     sessionFile: state && state.sessionFile,
     sessionName: state && state.sessionName,

@@ -366,7 +366,21 @@ function setStatus(text) {
   statusLine.textContent = text || '';
 }
 
-function appendUser(text, { tag, images } = {}) {
+/** Thumbnails for a user message; `images` are attachments or pi's image blocks. */
+function imageStrip(images) {
+  const strip = document.createElement('div');
+  strip.className = 'msg-images';
+  for (const img of images) {
+    const pic = document.createElement('img');
+    pic.src = img.url || base64Url(img.data, img.mimeType);
+    pic.alt = 'Attached image';
+    pic.addEventListener('click', () => openLightbox(pic.src));
+    strip.appendChild(pic);
+  }
+  return strip;
+}
+
+function appendUser(text, { tag, images = [] } = {}) {
   const el = document.createElement('div');
   el.className = 'msg user';
   if (tag) {
@@ -376,7 +390,8 @@ function appendUser(text, { tag, images } = {}) {
     t.textContent = tag;
     el.appendChild(t);
   }
-  el.appendChild(document.createTextNode(text + (images ? `${text ? ' ' : ''}🖼×${images}` : '')));
+  if (images.length) el.appendChild(imageStrip(images));
+  if (text) el.appendChild(document.createTextNode(text));
   transcript.appendChild(el);
   scrollToBottom(true);
   return el;
@@ -658,15 +673,17 @@ function markDelivered(bubble) {
 
 async function send(text, { followUp = false, byVoice = false, display = '', fromDoc = false } = {}) {
   text = text.trim();
-  const images = fromDoc ? [] : takeImages();
-  if (!text && !images.length) return;
+  if (!text && !(pendingImages.length && !fromDoc)) return;
   if (streaming) {
     // A task runs outside the chat session, so there's nothing to steer.
     if (mode === 'assistant') systemLine('Wait for this task to finish, or press Esc to stop it.');
-    else queueMessage(text, followUp);
+    // Steering takes text only; attached images wait in the tray for the next turn.
+    else if (text) queueMessage(text, followUp);
+    else systemLine('Images go with the next message once this turn finishes.');
     return;
   }
 
+  const images = fromDoc ? [] : takeImages();
   // Only keep "@" mentions whose path still appears in the message.
   const mentions = fromDoc ? [] : pendingMentions.filter((m) => text.includes(m.path));
   if (!fromDoc) pendingMentions = [];
@@ -674,7 +691,7 @@ async function send(text, { followUp = false, byVoice = false, display = '', fro
   if (!byVoice) speech.stop();
 
   setExpanded(true);
-  appendUser(display || text, { images: images.length });
+  appendUser(display || text, { images });
   if (!byVoice) conversing = false;
   streaming = true;
   let settleTurn;
@@ -687,7 +704,7 @@ async function send(text, { followUp = false, byVoice = false, display = '', fro
 
   let res;
   try {
-    res = await window.leslie.sendMessage(text, mentions, images);
+    res = await window.leslie.sendMessage(text, mentions, images.map(({ type, data, mimeType }) => ({ type, data, mimeType })));
   } catch (err) {
     res = { error: err && err.message ? err.message : String(err) };
   }
@@ -1187,8 +1204,68 @@ function setSendMode(busy) {
   else input.placeholder = busy ? PLACEHOLDER.piBusy : PLACEHOLDER.piIdle;
 }
 
-// --- Pasted images (sent with the next prompt) ------------------------------
+// --- Attached images (sent with the next prompt) ----------------------------
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+const MAX_IMAGES = 8;
+// Bigger images cost the model context without helping it see more.
+const MAX_IMAGE_SIDE = 1568;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const attachInput = document.getElementById('attach-input');
 let pendingImages = [];
+
+function base64Url(data, mimeType) {
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1]);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Scales big images down and flattens GIFs to their first frame (models want stills).
+async function prepareImage(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+  if (scale === 1 && file.size <= MAX_IMAGE_BYTES && file.type !== 'image/gif') {
+    bitmap.close();
+    return file;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const type = file.type === 'image/jpeg' ? 'image/jpeg' : file.type === 'image/webp' ? 'image/webp' : 'image/png';
+  return new Promise((resolve) => canvas.toBlob(resolve, type, 0.9));
+}
+
+async function addImageFiles(files) {
+  const images = [...files].filter((f) => f.type.startsWith('image/'));
+  if (!images.length) return;
+  const skipped = images.filter((f) => !IMAGE_TYPES.includes(f.type));
+  if (skipped.length) systemLine(`⚠ Can't attach ${skipped.map((f) => f.name || f.type).join(', ')}: use PNG, JPEG, WebP or GIF.`);
+  const room = MAX_IMAGES - pendingImages.length;
+  const usable = images.filter((f) => IMAGE_TYPES.includes(f.type));
+  if (usable.length > room) systemLine(`⚠ Up to ${MAX_IMAGES} images per message; ${usable.length - Math.max(room, 0)} left out.`);
+  const wasEmpty = !pendingImages.length;
+  for (const file of usable.slice(0, Math.max(room, 0))) {
+    try {
+      const blob = await prepareImage(file);
+      pendingImages.push({ type: 'image', data: await blobToBase64(blob), mimeType: blob.type, url: URL.createObjectURL(blob) });
+    } catch (err) {
+      systemLine(`⚠ Couldn't read ${file.name || 'that image'}: ${err.message || err}`, 'error');
+    }
+  }
+  renderAttachments();
+  if (wasEmpty && pendingImages.length && piState && piState.model && !piState.model.vision) {
+    systemLine(`⚠ ${piState.model.name} can't see images. Switch to a vision model (/model) before sending.`);
+  }
+}
 
 function takeImages() {
   const images = pendingImages;
@@ -1204,11 +1281,14 @@ function renderAttachments() {
     const box = document.createElement('div');
     box.className = 'attachment';
     const pic = document.createElement('img');
-    pic.src = `data:${img.mimeType};base64,${img.data}`;
+    pic.src = img.url;
+    pic.alt = 'Attached image';
+    pic.addEventListener('click', () => openLightbox(img.url));
     const drop = document.createElement('button');
     drop.textContent = '×';
     drop.title = 'Remove';
     drop.addEventListener('click', () => {
+      URL.revokeObjectURL(img.url);
       pendingImages.splice(i, 1);
       renderAttachments();
     });
@@ -1217,19 +1297,57 @@ function renderAttachments() {
   });
 }
 
+function openLightbox(src) {
+  const box = document.createElement('div');
+  box.className = 'lightbox';
+  const pic = document.createElement('img');
+  pic.src = src;
+  box.appendChild(pic);
+  const close = () => {
+    box.remove();
+    document.removeEventListener('keydown', onKey, true);
+  };
+  const onKey = (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    close();
+  };
+  box.addEventListener('click', close);
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(box);
+}
+
 input.addEventListener('paste', (event) => {
   const files = [...(event.clipboardData ? event.clipboardData.files : [])].filter((f) => f.type.startsWith('image/'));
   if (!files.length) return;
   event.preventDefault();
-  for (const file of files) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const [, data] = String(reader.result).split(',');
-      pendingImages.push({ type: 'image', data, mimeType: file.type });
-      renderAttachments();
-    };
-    reader.readAsDataURL(file);
-  }
+  addImageFiles(files);
+});
+
+document.getElementById('attach-btn').addEventListener('click', () => attachInput.click());
+attachInput.addEventListener('change', () => {
+  addImageFiles(attachInput.files);
+  attachInput.value = '';
+});
+
+const panelEl = document.getElementById('panel');
+const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+panelEl.addEventListener('dragover', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  panelEl.classList.add('dropping');
+});
+panelEl.addEventListener('dragleave', (e) => {
+  if (!panelEl.contains(e.relatedTarget)) panelEl.classList.remove('dropping');
+});
+panelEl.addEventListener('drop', (e) => {
+  panelEl.classList.remove('dropping');
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  setExpanded(true);
+  addImageFiles(e.dataTransfer.files);
+  input.focus();
 });
 
 // --- "!command" runs a shell command through pi; "!!" keeps it out of context -
@@ -1707,7 +1825,7 @@ piContextChip.addEventListener('click', () => PI_COMMANDS.session());
 
 const contentText = (content) =>
   typeof content === 'string' ? content : (content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n');
-const imageCount = (content) => (Array.isArray(content) ? content.filter((b) => b.type === 'image').length : 0);
+const imageBlocks = (content) => (Array.isArray(content) ? content.filter((b) => b.type === 'image' && b.data) : []);
 const stripReplyTags = (text) =>
   String(text || '')
     .replace(/<think>[\s\S]*?<\/think>/g, '')
@@ -1722,7 +1840,7 @@ function renderHistory(messages) {
   for (const m of messages) {
     switch (m.role) {
       case 'user':
-        appendUser(contentText(m.content), { images: imageCount(m.content) });
+        appendUser(contentText(m.content), { images: imageBlocks(m.content) });
         break;
       case 'assistant': {
         beginAssistant();

@@ -620,12 +620,23 @@ async function buildMentionContext(mentions) {
   return `The user attached the following from their computer for you to view:\n\n${parts.join('\n\n---\n\n')}`;
 }
 
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+const MAX_IMAGES = 8;
+
+function cleanImages(images) {
+  if (!Array.isArray(images)) return [];
+  return images
+    .filter((img) => img && typeof img.data === 'string' && img.data && IMAGE_TYPES.includes(img.mimeType))
+    .slice(0, MAX_IMAGES)
+    .map(({ data, mimeType }) => ({ type: 'image', data, mimeType }));
+}
+
 ipcMain.handle('agent:message', async (event, payload) => {
   const sender = event.sender;
   // Back-compat: payload may be a bare string or { text, mentions }.
   const text = typeof payload === 'string' ? payload : (payload && payload.text) || '';
   const mentions = (payload && payload.mentions) || [];
-  const images = (payload && payload.images) || [];
+  const images = cleanImages(payload && payload.images);
   idleReset.userInput();
 
   const shortcut = images.length ? null : shortcuts.match(text);
