@@ -159,3 +159,32 @@ test('the server only answers its own host and token', async () => {
     s2.close();
   }
 });
+
+test('a plan can be approved once, and its state survives a restart', async () => {
+  const { dir, store } = tmpStore();
+  store.create('Move dotfiles', '# Move dotfiles\n\n1. Copy them\n');
+  const approved = [];
+  const s2 = createDocsServer({ store, port: 18191 + Math.floor(Math.random() * 2000), onApprove: (name) => approved.push(name) });
+  await s2.listen();
+  const base = s2.url().replace(/\/$/, '');
+  try {
+    const token = (await (await fetch(`${base}/d/Move%20dotfiles`)).text()).match(/content="([0-9a-f]+)"/)[1];
+    const approve = () =>
+      fetch(`${base}/api/docs/Move%20dotfiles/plan`, {
+        method: 'POST',
+        headers: { 'x-leslie-token': token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve' })
+      });
+    assert.equal((await approve()).status, 400, 'not a plan yet');
+    store.setPlan('Move dotfiles', 'proposed');
+    assert.equal((await approve()).status, 200);
+    assert.equal((await approve()).status, 400, 'already approved');
+    assert.deepEqual(approved, ['Move dotfiles']);
+  } finally {
+    s2.close();
+  }
+  store.setPlan('Move dotfiles', 'done', 'Copied them.');
+  const reopened = new DocStore(dir);
+  assert.equal(reopened.get('Move dotfiles').plan.status, 'done');
+  assert.equal(reopened.get('Move dotfiles').plan.note, 'Copied them.');
+});

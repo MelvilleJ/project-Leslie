@@ -244,6 +244,7 @@ function applyDoc(next, by) {
   while (container.children.length > order.length) container.lastElementChild.remove();
 
   renderThreads();
+  renderPlan();
   if (by === 'leslie') setStatus('Leslie is editing…', 'leslie', 4000);
   else if (!statusTimer || by === 'comment') idleStatus();
 }
@@ -573,6 +574,42 @@ function focusThread(id) {
   card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
+// --- plan -------------------------------------------------------------------
+
+const PLAN_TEXT = {
+  proposed: 'Leslie wrote this as a plan. Change anything above first if you like; approving switches her to agent mode and she carries out the plan as it stands.',
+  approved: 'Approved. Leslie switched to agent mode and is carrying it out…',
+  done: 'Carried out.',
+  failed: 'Not carried out.'
+};
+
+function renderPlan() {
+  const plan = doc.plan;
+  $('planBar').hidden = !plan;
+  if (!plan) return;
+  $('planBar').dataset.status = plan.status;
+  $('planText').textContent = PLAN_TEXT[plan.status] || '';
+  $('planNote').textContent = plan.note || '';
+  $('planNote').hidden = !plan.note;
+  const button = $('approvePlan');
+  button.hidden = !['proposed', 'failed'].includes(plan.status);
+  button.disabled = false;
+  button.textContent = plan.status === 'failed' ? 'Approve again' : 'Approve plan';
+}
+
+async function approvePlan() {
+  const button = $('approvePlan');
+  button.disabled = true;
+  finishEdit();
+  try {
+    await saving;
+    await api(docPath('/plan'), { method: 'POST', body: { action: 'approve' } });
+  } catch (err) {
+    button.disabled = false;
+    toast(err.message);
+  }
+}
+
 // --- history ----------------------------------------------------------------
 
 const VERSION_LABEL = { user: 'Before your edits', leslie: "Before Leslie's edits", file: 'Before an outside edit', deleted: 'Before it was deleted' };
@@ -653,6 +690,8 @@ function startDoc() {
   $('historyBtn').onclick = openHistory;
   $('historyClose').onclick = () => ($('historyPanel').hidden = true);
   $('downloadBtn').onclick = download;
+  $('approvePlan').addEventListener('mousedown', (e) => e.preventDefault());
+  $('approvePlan').onclick = approvePlan;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && edit && edit.dirty) queueSave(edit);
   });

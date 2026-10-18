@@ -37,6 +37,9 @@ const BRIDGED = {
 
 const PI_READ_TOOLS = ['read', 'grep', 'find', 'ls'];
 const PI_WRITE_TOOLS = ['bash', 'edit', 'write'];
+// Plan mode writes its plan as a live doc; bash, edit and write are held to
+// read-only commands and doc files by the bridge's gates.
+const PLAN_DOC_TOOLS = ['doc_create', 'doc_edit'];
 
 function cwd() {
   return config.piCwd || os.homedir();
@@ -52,15 +55,16 @@ function bridgedAllowed() {
       if (t.name.startsWith('doc_')) return docs.enabled();
       return true;
     })
-    .filter((t) => !config.planMode || t.readOnly)
+    .filter((t) => !config.planMode || t.readOnly || PLAN_DOC_TOOLS.includes(t.name))
     .filter((t) => !presence.restricted() || (t.readOnly && !GUEST_BLOCKED.includes(t.name)))
     .map((t) => t.name);
 }
 
 function piAllowed() {
   if (!config.toolsEnabled || presence.restricted()) return [];
+  if (config.planMode) return [...PI_READ_TOOLS, 'bash', ...(docs.enabled() ? ['edit', 'write'] : [])];
   const list = config.fsReadEnabled || config.agentMode ? [...PI_READ_TOOLS] : [];
-  if (config.agentMode && !config.planMode) list.push(...PI_WRITE_TOOLS);
+  if (config.agentMode) list.push(...PI_WRITE_TOOLS);
   return list;
 }
 

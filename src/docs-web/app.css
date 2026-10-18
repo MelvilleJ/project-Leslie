@@ -193,6 +193,19 @@ input:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-colo
 .add-block { margin-top: 16px; background: transparent; color: var(--dim); border: 1px dashed var(--line); width: 100%; }
 .add-block:hover { color: var(--text); background: var(--raised); }
 
+.plan-bar {
+  margin-top: 28px;
+  padding: 16px 18px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+.plan-bar h2 { margin: 0 0 4px; font-size: 15px; color: var(--accent); }
+.plan-bar p { margin: 0 0 12px; color: var(--dim); font-size: 14px; }
+.plan-bar .plan-note { color: var(--text); white-space: pre-wrap; }
+.plan-bar[data-status="done"], .plan-bar[data-status="approved"] { border-color: var(--line); background: var(--surface); }
+.plan-bar[data-status="failed"] { border-color: var(--danger); }
+
 /* --- comments --- */
 .rail { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .thread {

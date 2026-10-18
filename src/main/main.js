@@ -1130,11 +1130,43 @@ function askLeslieAboutComment(name, thread) {
   toCompanion('docs:ask', { id, prompt: docCommentPrompt(name, thread), label: `💬 On "${name}": ${latest}` });
 }
 
+function approvedPlanPrompt(name) {
+  return [
+    `The user approved your plan in the live doc "${name}", and you are now in agent mode. Carry it out now, step by step.`,
+    'The user may have edited the plan after you wrote it: the doc below is what they approved, so follow it over ' +
+      'anything said earlier. Do only what it says. If a step turns out to be wrong or unsafe, stop and say why instead of improvising.',
+    '',
+    '--- approved plan ---',
+    docs.store().markdown(name).trim(),
+    '--- end of plan ---',
+    '',
+    'When you are finished, reply with a short summary of what you did.'
+  ].join('\n');
+}
+
+// Approving a plan doc switches to agent mode and runs the doc as a chat turn;
+// how it went is shown on the doc's plan bar.
+function carryOutPlan(name) {
+  const settle = (status, note) => {
+    try {
+      docs.store().setPlan(name, status, note);
+    } catch (err) {
+      console.warn('[docs] could not update the plan:', err.message);
+    }
+  };
+  if (!companionWindow || companionWindow.isDestroyed()) return settle('failed', "My window is closed, so I couldn't start.");
+  applyMode('agent');
+  const id = `doc-${++docAskSeq}`;
+  docAsks.set(id, (text, failed) => settle(failed ? 'failed' : 'done', text));
+  showCompanion({ silent: true });
+  toCompanion('docs:ask', { id, prompt: approvedPlanPrompt(name), label: `✅ Approved plan: "${name}"` });
+}
+
 ipcMain.on('docs:answer', (_event, { id, reply, error } = {}) => {
   const answer = docAsks.get(id);
   if (!answer) return;
   docAsks.delete(id);
-  answer(error ? `I couldn't do that: ${error}` : String(reply || '').trim() || 'Done.');
+  answer(error ? `I couldn't do that: ${error}` : String(reply || '').trim() || 'Done.', Boolean(error));
 });
 
 function startPresence() {
@@ -1224,7 +1256,10 @@ app.whenReady().then(() => {
   permissions.init({ icon: APP_ICON });
   forwardPiEvents();
   startPresence();
-  docs.start().then(() => docs.onAsk(askLeslieAboutComment));
+  docs.start().then(() => {
+    docs.onAsk(askLeslieAboutComment);
+    docs.onApprove(carryOutPlan);
+  });
   modelServer.startup().catch(() => {}).then(sayHello).then(() => watch.start(presence.holdOrAnnounce));
 
   createWindow();

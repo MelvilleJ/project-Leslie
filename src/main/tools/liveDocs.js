@@ -1,11 +1,17 @@
 'use strict';
 
+const config = require('../config');
 const docs = require('../docs');
 
 const nameParam = { type: 'string', description: 'The doc name, as doc_list or doc_create gave it.' };
 
 function openInBrowser(name, ctx) {
   if (!docs.isOpen(name) && typeof ctx.openUrl === 'function') ctx.openUrl(docs.url(name));
+}
+
+// A doc written or revised in plan mode is the plan: it gets the Approve button.
+function markPlan(store, name) {
+  if (config.planMode && store.get(name).plan?.status !== 'proposed') store.setPlan(name, 'proposed');
 }
 
 function editSummary(store, name, out) {
@@ -70,8 +76,9 @@ const docCreate = {
   async run({ title, markdown }, ctx = {}) {
     const store = docs.store();
     const view = store.create(title, markdown || `# ${title}\n`);
+    markPlan(store, view.name);
     openInBrowser(view.name, ctx);
-    return `Created and opened.\n\n${docs.outline(store.readForLeslie(view.name))}`;
+    return `Created and opened${config.planMode ? ' as a plan with an Approve button' : ''}.\n\n${docs.outline(store.readForLeslie(view.name))}`;
   }
 };
 
@@ -112,7 +119,9 @@ const docEdit = {
     const store = docs.store();
     const resolved = store.resolve(name);
     openInBrowser(resolved, ctx);
-    return editSummary(store, resolved, store.apply(resolved, ops, 'leslie'));
+    const out = store.apply(resolved, ops, 'leslie');
+    if (out.results.some((r) => r.ok)) markPlan(store, resolved);
+    return editSummary(store, resolved, out);
   }
 };
 

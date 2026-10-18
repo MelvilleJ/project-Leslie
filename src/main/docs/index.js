@@ -9,6 +9,7 @@ const OUTLINE_CHARS = 14000;
 let store = null;
 let server = null;
 let askHandler = null;
+let approveHandler = null;
 
 function enabled() {
   return config.liveDocsEnabled && Boolean(server);
@@ -21,7 +22,8 @@ async function start() {
   const candidate = createDocsServer({
     store,
     port: config.liveDocsPort,
-    onAsk: (name, thread) => askHandler && askHandler(name, thread)
+    onAsk: (name, thread) => askHandler && askHandler(name, thread),
+    onApprove: (name) => approveHandler && approveHandler(name)
   });
   try {
     await candidate.listen();
@@ -51,9 +53,22 @@ function onAsk(fn) {
   askHandler = fn;
 }
 
+/** Called with the doc name when the user approves a plan doc. */
+function onApprove(fn) {
+  approveHandler = fn;
+}
+
+const PLAN_STATE = {
+  proposed: 'a plan waiting for the user to approve it',
+  approved: 'an approved plan being carried out',
+  done: 'a plan that was carried out',
+  failed: 'a plan that was not carried out'
+};
+
 /** The doc as Leslie sees it: one line per block, `[id] text`, long docs cut short. */
 function outline(view, { full = false } = {}) {
   const lines = [`Doc "${view.name}" (rev ${view.rev}) ${server.url(view.name)}`];
+  if (view.plan) lines.push(`This doc is ${PLAN_STATE[view.plan.status] || 'a plan'}.`);
   let used = 0;
   let cut = 0;
   for (const b of view.blocks) {
@@ -83,6 +98,7 @@ module.exports = {
   stop,
   enabled,
   onAsk,
+  onApprove,
   outline,
   store: requireStore,
   url: (name) => server && server.url(name),

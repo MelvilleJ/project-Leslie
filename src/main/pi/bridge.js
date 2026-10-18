@@ -9,6 +9,7 @@ const { StringDecoder } = require('node:string_decoder');
 const config = require('../config');
 const { gate } = require('../tools/lib/agentShell');
 const { underRoots } = require('../tools/lib/osPaths');
+const planGuard = require('../tools/lib/planGuard');
 const policy = require('./policy');
 
 function socketPath() {
@@ -68,10 +69,18 @@ function createBridge({ getTurn, systemSections }) {
     },
 
     async gateCommand({ command }) {
+      if (config.planMode) {
+        const allowed = planGuard.commandInPlan(String(command || ''), policy.cwd());
+        return allowed ? { allowed } : { allowed, reason: planGuard.planCommandRefusal() };
+      }
       return { allowed: await gate(String(command || ''), turnCtx()) };
     },
 
     async gateWrite({ path: target, toolName }) {
+      if (config.planMode) {
+        const allowed = planGuard.writableInPlan(String(target || ''), policy.cwd());
+        return allowed ? { allowed } : { allowed, reason: planGuard.planWriteRefusal() };
+      }
       if (config.agentMode && !config.taskMode) return { allowed: true };
       if (underRoots(path.resolve(policy.cwd(), String(target || '')), config.fsWriteRoots)) return { allowed: true };
       const approved = await turnCtx().confirm(

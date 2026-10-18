@@ -6,8 +6,8 @@ module.exports = {
   name: 'set_mode',
   readOnly: true,
   description:
-    "Switch LESLIE's operating mode. 'chat' is conversation only; 'plan' is read-only planning " +
-    '(no changes to the computer); \'agent\' can run shell commands, install software, and change ' +
+    "Switch LESLIE's operating mode. 'chat' is conversation only; 'plan' investigates read-only " +
+    'and writes a plan as a live doc for the user to approve; \'agent\' can run shell commands, install software, and change ' +
     'files; \'assistant\' runs each request as a one-off task without keeping the conversation. Use when the user asks to switch modes ("switch to agent mode", "go into plan mode") or ' +
     'when a task the user asked for needs a mode you are not in — in that case switch, then continue. ' +
     'The change applies from the next turn. NOT for "power mode" or "everyday mode" — those are ' +

@@ -73,12 +73,21 @@ because pi's are better: `run_command`→`bash`, `read_file`→`read`,
 | Mode | pi built-ins | LESLIE tools |
 |---|---|---|
 | chat | `read grep find ls` | all except `install_software` |
-| plan | `read grep find ls` | read-only ones only |
+| plan | `read grep find ls bash edit write` (held to read-only and live docs) | read-only ones plus `doc_create`/`doc_edit` |
 | agent | + `bash edit write` | all |
 
 **Gating.** `bash` goes through LESLIE's allowlist + Approve/Deny bubble
 (`agentShell.gate`). `write`/`edit` are allowed inside `fsWriteRoots`, asked
 outside them. pi `confirm` dialogs from other extensions use the same bubble.
+
+**Plan mode** (`tools/lib/planGuard.js`) refuses instead of asking: `bash`
+runs only when every command in the line is read-only (`ls`, `cat`, `grep`,
+`git log`, `systemctl status`, `pacman -Q`...) and any output redirect or `tee`
+targets `/dev/null` or a `.md` file directly in the live docs folder;
+`write`/`edit` only touch those `.md` files. A doc Leslie creates or edits in
+plan mode is marked as a plan and shows an Approve section in the browser.
+Approving switches to agent mode and sends the doc, as it stands after the
+user's edits, as the next chat turn; her summary lands back on the doc.
 
 **Verified** against pi 0.87.1 + local Qwen: streaming reply, thinking,
 bridged tool (`open_url`), bash deny/approve, per-mode tool sets, cancel.

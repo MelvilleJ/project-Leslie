@@ -95,7 +95,7 @@ async function run({ query, save_as: saveAs }, ctx = {}) {
 
   const requested = String(saveAs || '').toLowerCase();
   const format = SAVE_FORMATS.includes(requested) ? requested : DEFAULT_FORMAT;
-  const live = format === 'md' && !config.planMode && docs.enabled() ? startLiveDoc(String(query), ctx) : null;
+  const live = format === 'md' && docs.enabled() ? startLiveDoc(String(query), ctx) : null;
 
   let out;
   try {

@@ -716,7 +716,7 @@ async function send(text, { followUp = false, byVoice = false, display = '', fro
 const MODES = ['chat', 'plan', 'agent', 'assistant'];
 const MODE_META = {
   chat: { icon: 'fa-comment', label: 'Chat', say: '💬 Chat mode — just conversation.' },
-  plan: { icon: 'fa-clipboard-list', label: 'Plan', say: "📋 Plan mode — I'll investigate read-only and propose a plan." },
+  plan: { icon: 'fa-clipboard-list', label: 'Plan', say: "📋 Plan mode: I'll look around read-only and write the plan as a doc for you to approve." },
   agent: { icon: 'fa-robot', label: 'Agent', say: '🤖 Agent mode — I can run commands.' },
   assistant: {
     icon: 'fa-bolt',

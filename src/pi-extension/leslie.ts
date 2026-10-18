@@ -5,7 +5,7 @@
  * LESLIE's desktop tools as pi tools that call back into the Electron main
  * process over a local socket, injects LESLIE's persona/memory into the system
  * prompt, applies LESLIE's chat/plan/agent tool selection, and gates shell and
- * file writes through LESLIE's approval UI.
+ * file writes through LESLIE's approval UI (or plan mode's read-only rules).
  */
 import { readFileSync } from "node:fs";
 import net from "node:net";
@@ -139,12 +139,12 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("tool_call", async (event) => {
 		if (event.toolName === "bash" || event.toolName === "powershell") {
-			const { allowed } = await call("gateCommand", { command: (event.input as any).command });
-			if (!allowed) return { block: true, reason: "The user declined to run this command." };
+			const { allowed, reason } = await call("gateCommand", { command: (event.input as any).command });
+			if (!allowed) return { block: true, reason: reason ?? "The user declined to run this command." };
 		}
 		if (event.toolName === "write" || event.toolName === "edit") {
-			const { allowed } = await call("gateWrite", { path: (event.input as any).path, toolName: event.toolName });
-			if (!allowed) return { block: true, reason: "The user declined this file change." };
+			const { allowed, reason } = await call("gateWrite", { path: (event.input as any).path, toolName: event.toolName });
+			if (!allowed) return { block: true, reason: reason ?? "The user declined this file change." };
 		}
 		return undefined;
 	});

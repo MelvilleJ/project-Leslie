@@ -100,6 +100,7 @@ class DocStore extends EventEmitter {
       lead,
       blocks: blocks.map((b, i) => ({ id: ids[i], text: b.text, sep: b.sep, h: hash(b.text), rev: side.rev || 1, by: 'file' })),
       threads: side.threads || [],
+      plan: side.plan || null,
       leslieSeen: 0,
       typing: new Map(),
       written: content,
@@ -137,7 +138,8 @@ class DocStore extends EventEmitter {
         const intent = pendingIntent(text);
         return intent === null ? { id, text, h, by, rev } : { id, text, h, by, rev, pending: intent };
       }),
-      threads: doc.threads
+      threads: doc.threads,
+      plan: doc.plan
     };
   }
 
@@ -167,7 +169,7 @@ class DocStore extends EventEmitter {
   }
 
   saveSidecar(doc) {
-    const side = { rev: doc.rev, blocks: doc.blocks.map(({ id, h }) => ({ id, h })), threads: doc.threads };
+    const side = { rev: doc.rev, blocks: doc.blocks.map(({ id, h }) => ({ id, h })), threads: doc.threads, plan: doc.plan };
     fs.writeFileSync(this.sidecar(doc.name), JSON.stringify(side, null, 1));
   }
 
@@ -418,6 +420,26 @@ class DocStore extends EventEmitter {
     if ('asked' in fields) thread.asked = Boolean(fields.asked);
     this.touchThreads(doc);
     return thread;
+  }
+
+  // --- plans -----------------------------------------------------------------
+
+  /**
+   * A doc Leslie wrote in plan mode carries `{ status, at, note? }`: 'proposed'
+   * until the user approves it, then 'approved', then 'done' or 'failed'.
+   */
+  setPlan(name, status, note) {
+    const doc = this.load(name);
+    doc.plan = status ? { status, at: this.now(), ...(note ? { note: String(note).slice(0, 600) } : {}) } : null;
+    this.saveSidecar(doc);
+    this.emit('change', { name: doc.name, by: 'plan', doc: this.view(doc) });
+    return doc.plan;
+  }
+
+  approvePlan(name) {
+    const doc = this.load(name);
+    if (!doc.plan || !['proposed', 'failed'].includes(doc.plan.status)) throw new DocError("This doc isn't a plan waiting for approval.");
+    return this.setPlan(name, 'approved');
   }
 
   // --- outside edits ---------------------------------------------------------

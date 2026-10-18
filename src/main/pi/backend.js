@@ -8,8 +8,9 @@ const config = require('../config');
 const settings = require('../settings');
 const memory = require('../memory');
 const presence = require('../presence/status');
+const docs = require('../docs');
 const { createTagRouter, FORMAT_INSTRUCTIONS } = require('../agent/replyTags');
-const { PLAN_MODE_DIRECTIVE, TASK_MODE_DIRECTIVE } = require('../agent/directives');
+const { planModeDirective, TASK_MODE_DIRECTIVE } = require('../agent/directives');
 const { toolDetail } = require('../agent/toolDetail');
 const { extractMemories } = require('../agent/reflect');
 const { PiRpcClient } = require('./rpcClient');
@@ -79,7 +80,7 @@ function systemSections() {
   const seen = presence.format();
   if (seen) sections.leslie_presence = seen;
   if (config.detailedResponses) sections.leslie_reply_format = FORMAT_INSTRUCTIONS;
-  if (config.planMode) sections.leslie_plan_mode = PLAN_MODE_DIRECTIVE;
+  if (config.planMode) sections.leslie_plan_mode = planModeDirective(docs.enabled());
   if (config.taskMode) sections.leslie_task_mode = TASK_MODE_DIRECTIVE;
   return sections;
 }
